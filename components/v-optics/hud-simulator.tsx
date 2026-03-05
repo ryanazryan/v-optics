@@ -36,9 +36,17 @@ function getMapUrl(lat: number, lng: number) {
   return `https://www.openstreetmap.org/export/embed.html?bbox=${lng-d},${lat-d},${lng+d},${lat+d}&layer=mapnik&marker=${lat},${lng}`
 }
 function catIcon(c: string) {
-  return c==="cafe"?"☕":c==="restaurant"||c==="fast_food"?"🍽":c==="hospital"||c==="pharmacy"?"🏥":
-    c==="school"||c==="university"?"🎓":c==="bank"?"🏦":c==="fuel"?"⛽":
-    c==="supermarket"||c==="convenience"?"🛒":c==="mosque"||c==="place_of_worship"?"🕌":"📍"
+  return c==="cafe"?"☕":c==="restaurant"||c==="fast_food"||c==="food_court"?"🍽":
+    c==="hospital"||c==="pharmacy"||c==="clinic"?"🏥":
+    c==="school"||c==="university"||c==="college"?"🎓":
+    c==="bank"||c==="atm"?"🏦":c==="fuel"?"⛽":
+    c==="supermarket"||c==="convenience"||c==="marketplace"?"🛒":
+    c==="mosque"||c==="place_of_worship"||c==="church"?"🛐":
+    c==="hotel"||c==="hostel"||c==="guest_house"?"🏨":
+    c==="attraction"||c==="museum"||c==="viewpoint"?"🏛":
+    c==="park"||c==="garden"||c==="pitch"?"🌳":
+    c==="parking"?"🅿":c==="bus_station"||c==="bus_stop"?"🚌":
+    c==="police"?"🚔":c==="post_office"?"📮":"📍"
 }
 
 // ── GPS HOOK ──────────────────────────────────────────────────────────────────
@@ -60,7 +68,7 @@ function useGPS() {
     lastRef.current = {lat,lng}
     setLoadingNearby(true)
     try {
-      const q = `[out:json][timeout:10];(node(around:600,${lat},${lng})[name][amenity];node(around:600,${lat},${lng})[name][shop];);out body 20;`
+      const q = `[out:json][timeout:15];(node(around:2000,${lat},${lng})[name][amenity];node(around:2000,${lat},${lng})[name][shop];node(around:2000,${lat},${lng})[name][tourism];node(around:2000,${lat},${lng})[name][leisure];);out body 40;`
       const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`)
       const data = await res.json()
       if (data.elements?.length > 0) {
@@ -71,7 +79,7 @@ function useGPS() {
             .sort((a:NearbyPlace,b:NearbyPlace)=>{
               const m=(d:string)=>d.endsWith("km")?parseFloat(d)*1000:parseFloat(d)
               return m(a.dist)-m(b.dist)
-            }).slice(0,5)
+            }).slice(0,8)
         )
       }
     } catch { setNearby([]) }
@@ -149,71 +157,521 @@ function useRealNotifs(coords: {lat:number;lng:number}|null) {
 }
 
 // ── TRANSLATE PANEL ───────────────────────────────────────────────────────────
+
+// Semua bahasa yang didukung
+const SUPPORTED_LANGS = [
+  { code: "id", label: "Indonesia",   flag: "🇮🇩", tesseract: "ind" },
+  { code: "en", label: "English",     flag: "🇬🇧", tesseract: "eng" },
+  { code: "ja", label: "日本語",       flag: "🇯🇵", tesseract: "jpn" },
+  { code: "zh", label: "中文",         flag: "🇨🇳", tesseract: "chi_sim" },
+  { code: "ko", label: "한국어",       flag: "🇰🇷", tesseract: "kor" },
+  { code: "ar", label: "العربية",     flag: "🇸🇦", tesseract: "ara" },
+  { code: "fr", label: "Français",    flag: "🇫🇷", tesseract: "fra" },
+  { code: "de", label: "Deutsch",     flag: "🇩🇪", tesseract: "deu" },
+  { code: "es", label: "Español",     flag: "🇪🇸", tesseract: "spa" },
+  { code: "ru", label: "Русский",     flag: "🇷🇺", tesseract: "rus" },
+]
+
+// Deteksi bahasa dari karakter
+function detectLang(text: string): string {
+  if (/[\u3040-\u30ff\u31f0-\u31ff]/.test(text)) return "ja"
+  if (/[\u4e00-\u9fff]/.test(text)) return "zh"
+  if (/[\uac00-\ud7af]/.test(text)) return "ko"
+  if (/[\u0600-\u06ff]/.test(text)) return "ar"
+  if (/[\u0400-\u04ff]/.test(text)) return "ru"
+  // Heuristic ID vs EN
+  const idWords = ["dan","yang","di","ke","dari","ini","itu","dengan","untuk","pada",
+    "adalah","tidak","saya","kami","akan","sudah","bisa","juga","ada","atau","jika","karena"]
+  const words = text.toLowerCase().split(/\s+/)
+  const idScore = words.filter(w => idWords.includes(w)).length
+  if (idScore >= 2) return "id"
+  // Cek karakter Latin aksen Eropa
+  if (/[àâçéèêëîïôùûüæœ]/i.test(text)) return "fr"
+  if (/[äöüß]/i.test(text)) return "de"
+  if (/[áéíóúüñ¿¡]/i.test(text)) return "es"
+  return "en"
+}
+
+// Preprocessing canvas untuk akurasi OCR
+function preprocessCanvas(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
+  const w = canvas.width, h = canvas.height
+  const imgData = ctx.getImageData(0, 0, w, h)
+  const d = imgData.data
+
+  // Step 1: Grayscale
+  for (let i = 0; i < d.length; i += 4) {
+    const gray = d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114
+    d[i] = d[i+1] = d[i+2] = gray
+  }
+
+  // Step 2: Hitung rata-rata untuk adaptive threshold
+  let sum = 0
+  for (let i = 0; i < d.length; i += 4) sum += d[i]
+  const avg = sum / (w * h)
+
+  // Step 3: Adaptive contrast + binarisasi lunak
+  for (let i = 0; i < d.length; i += 4) {
+    const v = d[i]
+    // Boost teks gelap di background terang, atau sebaliknya
+    const enhanced = v < avg
+      ? Math.max(0,   v * 0.6)        // gelap → lebih gelap
+      : Math.min(255, v * 1.25 + 20)  // terang → lebih terang
+    d[i] = d[i+1] = d[i+2] = enhanced
+  }
+
+  ctx.putImageData(imgData, 0, 0)
+
+  // Step 4: Scale up 2x untuk Tesseract lebih akurat
+  const scaled = document.createElement("canvas")
+  scaled.width = w * 2; scaled.height = h * 2
+  const sCtx = scaled.getContext("2d")!
+  sCtx.imageSmoothingEnabled = false
+  sCtx.drawImage(canvas, 0, 0, w * 2, h * 2)
+  return scaled
+}
+
+// Terjemahkan dengan 3 lapis fallback
+async function translateText(
+  text: string,
+  fromLang: string,
+  toLang: string,
+  setStatus: (s: string) => void
+): Promise<string> {
+  if (fromLang === toLang) return text
+  const short = text.slice(0, 500)
+
+  // Coba 1: MyMemory dengan langpair eksplisit
+  try {
+    setStatus(`Menerjemahkan ${fromLang.toUpperCase()} → ${toLang.toUpperCase()} (MyMemory)...`)
+    const r = await fetch(
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(short)}&langpair=${fromLang}|${toLang}`
+    )
+    const d = await r.json()
+    const res = d.responseData?.translatedText ?? ""
+    if (d.responseStatus === 200 && res && res !== text && !res.includes("MYMEMORY WARNING")) {
+      return res
+    }
+  } catch {}
+
+  // Coba 2: Google Translate non-official
+  try {
+    setStatus(`Menerjemahkan (Google Translate)...`)
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${fromLang}&tl=${toLang}&dt=t&q=${encodeURIComponent(short)}`
+    const r = await fetch(url)
+    if (r.ok) {
+      const d = await r.json()
+      const result = (d[0] as any[])?.map((chunk: any) => chunk?.[0] ?? "").filter(Boolean).join("") ?? ""
+      if (result && result !== text) return result
+    }
+  } catch {}
+
+  // Coba 3: LibreTranslate
+  try {
+    setStatus(`Menerjemahkan (LibreTranslate)...`)
+    const r = await fetch("https://libretranslate.de/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ q: short, source: fromLang, target: toLang, format: "text" })
+    })
+    if (r.ok) {
+      const d = await r.json()
+      if (d.translatedText && d.translatedText !== text) return d.translatedText
+    }
+  } catch {}
+
+  throw new Error("Semua API terjemahan gagal")
+}
+
 function TranslatePanel({accent,accentDim,accentFaint,targetLang}:{
   accent:string; accentDim:string; accentFaint:string; targetLang:string
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null)
+  const videoRef  = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [cameraOn, setCameraOn] = useState(false)
-  const [scanning, setScanning] = useState(false)
-  const [capturedText, setCapturedText] = useState("")
-  const [translated, setTranslated] = useState("")
-  const [detectedLang, setDetectedLang] = useState("")
-  const [status, setStatus] = useState("Izinkan kamera untuk memulai")
   const streamRef = useRef<MediaStream|null>(null)
+
+  // State bahasa — source & target bisa diswitch
+  const [srcLang, setSrcLang] = useState("auto")          // "auto" = deteksi otomatis
+  const [dstLang, setDstLang] = useState(targetLang === "id" ? "id" : "en")
+
+  const [cameraOn,    setCameraOn]    = useState(false)
+  const [scanning,    setScanning]    = useState(false)
+  const [capturedText,setCapturedText]= useState("")
+  const [translated,  setTranslated]  = useState("")
+  const [detectedLang,setDetectedLang]= useState("")
+  const [status,      setStatus]      = useState("")
+  const [manualText,  setManualText]  = useState("")
+  const [showManual,  setShowManual]  = useState(false)
+  const [showLangPicker, setShowLangPicker] = useState<"src"|"dst"|null>(null)
+
+  // Sync dstLang & status dengan setting bahasa interface
+  const isEN = targetLang === "en"
+  useEffect(() => { setDstLang(targetLang === "id" ? "id" : "en") }, [targetLang])
+  useEffect(() => {
+    if (!cameraOn) setStatus(isEN ? "Allow camera to start" : "Izinkan kamera untuk memulai")
+  }, [targetLang])
 
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:1280},height:{ideal:720}}})
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode:"environment", width:{ideal:1920}, height:{ideal:1080} }
+      })
       streamRef.current = stream
-      if (videoRef.current) { videoRef.current.srcObject=stream; videoRef.current.play() }
-      setCameraOn(true); setStatus("Kamera aktif — arahkan ke teks, tekan Scan")
-    } catch { setStatus("⚠ Akses kamera ditolak") }
+      if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play() }
+      setCameraOn(true); setShowManual(false)
+      setStatus(targetLang==="en" ? "Camera active — point at text, press SCAN" : "Kamera aktif — arahkan ke teks, tekan SCAN")
+    } catch { setStatus(targetLang==="en" ? "⚠ Camera access denied" : "⚠ Akses kamera ditolak") }
   }
+
   const stopCamera = () => {
-    streamRef.current?.getTracks().forEach(t=>t.stop())
-    setCameraOn(false); setStatus("Kamera dimatikan")
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    setCameraOn(false); setStatus(targetLang==="en" ? "Camera off" : "Kamera dimatikan")
   }
-  const scanAndTranslate = async () => {
-    if (!videoRef.current||!canvasRef.current) return
-    setScanning(true); setStatus("Memindai teks...")
-    const canvas = canvasRef.current
-    const ctx = canvas.getContext("2d")!
-    canvas.width=videoRef.current.videoWidth; canvas.height=videoRef.current.videoHeight
-    ctx.drawImage(videoRef.current,0,0)
+
+  // Swap src ↔ dst
+  const swapLangs = () => {
+    if (srcLang === "auto") return
+    const prev = dstLang
+    setDstLang(srcLang)
+    setSrcLang(prev)
+    // Swap hasil juga kalau sudah ada terjemahan
+    if (translated) {
+      const prevCaptured = capturedText
+      setCapturedText(translated)
+      setTranslated(prevCaptured)
+    }
+  }
+
+  // Proses teks hasil OCR atau manual
+  const processText = async (rawText: string) => {
+    const cleaned = rawText
+      .replace(/\r?\n/g, " ")
+      .replace(/[^\x20-\x7E\u00C0-\u024F\u0400-\u04FF\u0600-\u06FF\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]/g, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim()
+
+    if (!cleaned || cleaned.length < 3) {
+      setStatus(targetLang==="en" ? "⚠ Text too short. Try better lighting." : "⚠ Teks terlalu pendek. Coba lagi dengan pencahayaan lebih baik.")
+      return
+    }
+
+    setCapturedText(cleaned.slice(0, 400))
+    setTranslated("")
+
+    const from = srcLang === "auto" ? detectLang(cleaned) : srcLang
+    setDetectedLang(from)
+    const to = dstLang
+
+    if (from === to) {
+      setTranslated(cleaned)
+      setStatus(targetLang==="en" ? `✓ Text already in ${SUPPORTED_LANGS.find(l=>l.code===to)?.label ?? to}` : `✓ Teks sudah dalam bahasa ${SUPPORTED_LANGS.find(l=>l.code===to)?.label ?? to}`)
+      return
+    }
+
     try {
+      const result = await translateText(cleaned, from, to, setStatus)
+      setTranslated(result)
+      const fromLabel = SUPPORTED_LANGS.find(l => l.code === from)?.label ?? from.toUpperCase()
+      const toLabel   = SUPPORTED_LANGS.find(l => l.code === to)?.label   ?? to.toUpperCase()
+      setStatus(`✓ ${fromLabel} → ${toLabel}`)
+    } catch {
+      setStatus(targetLang==="en" ? "⚠ Translation failed. Check internet." : "⚠ Terjemahan gagal. Cek koneksi internet.")
+    }
+  }
+
+  const scanAndTranslate = async () => {
+    if (!videoRef.current || !canvasRef.current) return
+    setScanning(true); setTranslated(""); setStatus(targetLang==="en" ? "Capturing camera frame..." : "Mengambil frame kamera...")
+
+    const canvas = canvasRef.current
+    const ctx    = canvas.getContext("2d")!
+    canvas.width  = videoRef.current.videoWidth  || 1280
+    canvas.height = videoRef.current.videoHeight || 720
+    ctx.drawImage(videoRef.current, 0, 0)
+
+    // Preprocessing untuk akurasi OCR
+    const processedCanvas = preprocessCanvas(canvas, ctx)
+
+    try {
+      setStatus(targetLang==="en" ? "Loading Tesseract OCR..." : "Memuat Tesseract OCR...")
       const Tesseract = await import("tesseract.js")
-      setStatus("OCR — membaca teks dari gambar...")
-      const {data:{text,confidence}} = await Tesseract.recognize(canvas,"eng+ind+jpn+kor+chi_sim+ara+fra+deu+spa")
-      const cleaned = text.trim().replace(/\s+/g," ")
-      if (!cleaned||confidence<30) { setStatus("Tidak ada teks terdeteksi. Coba dekatkan kamera ke teks."); setScanning(false); return }
-      setCapturedText(cleaned.slice(0,200)); setStatus("Menerjemahkan...")
-      const toLang = targetLang==="id"?"id":"en"
-      const r = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(cleaned.slice(0,500))}&langpair=auto|${toLang}`)
-      const d = await r.json()
-      if (d.responseStatus===200) {
-        setTranslated(d.responseData.translatedText)
-        setDetectedLang(d.responseData.detectedLanguage||"auto")
-        setStatus(`Terjemahan selesai (${d.responseData.detectedLanguage||"auto"} → ${toLang.toUpperCase()})`)
-      } else { setStatus("⚠ Gagal menerjemahkan. Coba lagi.") }
-    } catch { setStatus("⚠ Error OCR. Pastikan tesseract.js terinstall: npm install tesseract.js") }
+
+      // Tentukan bahasa OCR
+      let ocrLangs: string
+      if (srcLang === "auto") {
+        // Scan semua bahasa yang mungkin
+        ocrLangs = "eng+ind+jpn+chi_sim+kor+ara+fra+deu+spa+rus"
+      } else {
+        const found = SUPPORTED_LANGS.find(l => l.code === srcLang)
+        // Selalu tambah eng sebagai fallback
+        ocrLangs = found ? `${found.tesseract}+eng` : "eng"
+      }
+
+      setStatus(targetLang==="en" ? `OCR: scanning (${ocrLangs.split("+").length} langs)...` : `OCR: memindai (${ocrLangs.split("+").length} bahasa)...`)
+
+      const { data: { text, confidence, words } } = await (Tesseract.recognize as any)(
+        processedCanvas,
+        ocrLangs,
+        {
+          logger: (m: any) => {
+            if (m.status === "recognizing text") {
+              setStatus(`OCR ${Math.round(m.progress * 100)}%`)
+            }
+          }
+        }
+      )
+
+      // Filter kata dengan confidence rendah
+      const filteredWords = words
+        ? (words as any[])
+            .filter((w: any) => w.confidence > 40)
+            .map((w: any) => w.text)
+            .join(" ")
+        : text
+
+      if (!filteredWords.trim() || confidence < 15) {
+        setStatus(targetLang==="en" ? "⚠ Text unreadable. Tips: ✓ Focus camera ✓ Good lighting ✓ Text not tilted" : "⚠ Teks tidak terbaca. Tips: ✓ Fokuskan kamera ✓ Cukup cahaya ✓ Teks tidak miring")
+        setScanning(false); return
+      }
+
+      setStatus(targetLang==="en" ? `OCR done (${Math.round(confidence)}% accuracy) — translating...` : `OCR selesai (${Math.round(confidence)}% akurasi) — menerjemahkan...`)
+      await processText(filteredWords)
+
+    } catch (e: any) {
+      if (e?.message?.includes("tesseract") || e?.message?.includes("Cannot find module")) {
+        setStatus(targetLang==="en" ? "⚠ Run: npm install tesseract.js" : "⚠ Jalankan: npm install tesseract.js")
+      } else {
+        setStatus((targetLang==="en"?"⚠ Error: ":"⚠ Error: ") + (e?.message ?? "unknown"))
+      }
+    }
     setScanning(false)
   }
-  useEffect(()=>()=>{ streamRef.current?.getTracks().forEach(t=>t.stop()) },[])
+
+  const translateManual = async () => {
+    if (!manualText.trim()) return
+    setScanning(true); setTranslated("")
+    setStatus(targetLang==="en"?"Translating...":"Menerjemahkan...")
+    await processText(manualText)
+    setScanning(false)
+  }
+
+  useEffect(() => () => { streamRef.current?.getTracks().forEach(t => t.stop()) }, [])
+
+  const srcInfo = srcLang === "auto"
+    ? { label: "Auto Detect", flag: "🔍" }
+    : SUPPORTED_LANGS.find(l => l.code === srcLang) ?? { label: srcLang, flag: "🌐" }
+  const dstInfo = SUPPORTED_LANGS.find(l => l.code === dstLang) ?? { label: dstLang, flag: "🌐" }
 
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:8,height:"100%"}}>
-      <div style={{flex:1,position:"relative",borderRadius:6,overflow:"hidden",border:`1px solid ${accentDim}`,background:"#000",minHeight:0}}>
-        <video ref={videoRef} style={{width:"100%",height:"100%",objectFit:"cover",display:cameraOn?"block":"none"}} muted playsInline/>
-        {!cameraOn&&(<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}><span style={{fontSize:24}}>📷</span><div style={{color:accentDim,fontSize:9,letterSpacing:1,textAlign:"center",padding:"0 12px"}}>{status}</div></div>)}
-        {cameraOn&&([[0,0],[1,0],[0,1],[1,1]] as const).map(([x,y],i)=>(<div key={i} style={{position:"absolute",width:12,height:12,top:y?"auto":6,bottom:y?6:"auto",left:x?"auto":6,right:x?6:"auto",borderTop:!y?`2px solid ${accent}`:"none",borderBottom:y?`2px solid ${accent}`:"none",borderLeft:!x?`2px solid ${accent}`:"none",borderRight:x?`2px solid ${accent}`:"none"}}/>))}
-        {scanning&&(<div style={{position:"absolute",left:0,right:0,height:2,background:`linear-gradient(90deg,transparent,${accent},transparent)`,animation:"scanBeam 1.5s ease-in-out infinite"}}/>)}
-        <canvas ref={canvasRef} style={{display:"none"}}/>
+    <div style={{display:"flex",flexDirection:"column",gap:7,height:"100%"}}>
+
+      {/* ── Language selector bar ── */}
+      <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",
+        border:`1px solid ${accentDim}`,borderRadius:6,background:`${accent}08`}}>
+
+        {/* Source lang */}
+        <div onClick={()=>setShowLangPicker(p=>p==="src"?null:"src")}
+          style={{flex:1,display:"flex",alignItems:"center",gap:5,cursor:"pointer",
+            padding:"3px 6px",borderRadius:4,
+            background:showLangPicker==="src"?`${accent}20`:"transparent",
+            border:`1px solid ${showLangPicker==="src"?accent:"transparent"}`}}>
+          <span style={{fontSize:13}}>{srcInfo.flag}</span>
+          <div>
+            <div style={{fontSize:8,color:accentDim,letterSpacing:1}}>{targetLang==="en"?"FROM":"DARI"}</div>
+            <div style={{fontSize:10,color:accent}}>{srcInfo.label}</div>
+          </div>
+          <span style={{fontSize:8,color:accentDim,marginLeft:"auto"}}>▾</span>
+        </div>
+
+        {/* Swap button */}
+        <button onClick={swapLangs}
+          style={{padding:"5px 8px",background:accentDim==="auto"?`${accent}22`:accentDim,
+            border:`1px solid ${accentDim}`,borderRadius:4,color:accent,
+            cursor:srcLang==="auto"?"not-allowed":"pointer",fontSize:13,
+            opacity:srcLang==="auto"?0.4:1}}>
+          ⇄
+        </button>
+
+        {/* Dest lang */}
+        <div onClick={()=>setShowLangPicker(p=>p==="dst"?null:"dst")}
+          style={{flex:1,display:"flex",alignItems:"center",gap:5,cursor:"pointer",
+            padding:"3px 6px",borderRadius:4,
+            background:showLangPicker==="dst"?`${accent}20`:"transparent",
+            border:`1px solid ${showLangPicker==="dst"?accent:"transparent"}`}}>
+          <span style={{fontSize:13}}>{dstInfo.flag}</span>
+          <div>
+            <div style={{fontSize:8,color:accentDim,letterSpacing:1}}>{targetLang==="en"?"TO":"KE"}</div>
+            <div style={{fontSize:10,color:accent}}>{dstInfo.label}</div>
+          </div>
+          <span style={{fontSize:8,color:accentDim,marginLeft:"auto"}}>▾</span>
+        </div>
       </div>
-      <div style={{fontSize:9,color:accentDim,letterSpacing:1,textAlign:"center"}}>{status}</div>
-      {translated&&(<div style={{padding:"8px 10px",border:`1px solid ${accentDim}`,borderRadius:6,background:accentFaint}}><div style={{fontSize:8,color:accentDim,letterSpacing:1,marginBottom:4}}>TEKS ASLI {detectedLang&&`(${detectedLang.toUpperCase()})`}</div><div style={{fontSize:10,color:"#fff6",marginBottom:6,lineHeight:1.4,textDecoration:"line-through"}}>{capturedText.slice(0,80)}{capturedText.length>80?"...":""}</div><div style={{fontSize:8,color:accentDim,letterSpacing:1,marginBottom:4}}>TERJEMAHAN → {targetLang.toUpperCase()}</div><div style={{fontSize:12,color:accent,fontWeight:"bold",textShadow:`0 0 8px ${accent}`,lineHeight:1.5}}>{translated}</div></div>)}
-      <div style={{display:"flex",gap:6}}>
-        {!cameraOn?(<button onClick={startCamera} style={{flex:1,padding:"7px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:2,background:accentFaint,border:`1px solid ${accentDim}`,color:accent,borderRadius:4,cursor:"pointer"}}>📷 AKTIFKAN KAMERA</button>):(<><button onClick={scanAndTranslate} disabled={scanning} style={{flex:2,padding:"7px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:2,background:scanning?`${accent}22`:accentFaint,border:`1px solid ${scanning?accentDim:accent}`,color:scanning?accentDim:accent,borderRadius:4,cursor:scanning?"not-allowed":"pointer"}}>{scanning?"⏳ MEMINDAI...":"◆ SCAN & TERJEMAH"}</button><button onClick={stopCamera} style={{flex:1,padding:"7px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,background:"rgba(255,60,60,0.08)",border:"1px solid rgba(255,60,60,0.3)",color:"#f66",borderRadius:4,cursor:"pointer"}}>STOP</button></>)}
+
+      {/* ── Language picker dropdown ── */}
+      {showLangPicker && (
+        <div style={{border:`1px solid ${accentDim}`,borderRadius:6,background:"#050e1c",
+          padding:6,maxHeight:120,overflowY:"auto"}}>
+          <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+            {/* Auto detect hanya untuk source */}
+            {showLangPicker === "src" && (
+              <div onClick={()=>{ setSrcLang("auto"); setShowLangPicker(null) }}
+                style={{display:"flex",alignItems:"center",gap:4,padding:"4px 8px",
+                  borderRadius:4,cursor:"pointer",fontSize:9,
+                  background:srcLang==="auto"?`${accent}25`:`${accent}08`,
+                  border:`1px solid ${srcLang==="auto"?accent:accentDim}`,
+                  color:srcLang==="auto"?accent:"#89a"}}>
+                🔍 Auto
+              </div>
+            )}
+            {SUPPORTED_LANGS.map(lang => {
+              const isActive = showLangPicker==="src" ? srcLang===lang.code : dstLang===lang.code
+              return (
+                <div key={lang.code}
+                  onClick={()=>{
+                    if (showLangPicker==="src") setSrcLang(lang.code)
+                    else setDstLang(lang.code)
+                    setShowLangPicker(null)
+                  }}
+                  style={{display:"flex",alignItems:"center",gap:4,padding:"4px 8px",
+                    borderRadius:4,cursor:"pointer",fontSize:9,
+                    background:isActive?`${accent}25`:`${accent}08`,
+                    border:`1px solid ${isActive?accent:accentDim}`,
+                    color:isActive?accent:"#89a"}}>
+                  {lang.flag} {lang.label}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Video / Manual input ── */}
+      {!showManual ? (
+        <div style={{flex:1,position:"relative",borderRadius:6,overflow:"hidden",
+          border:`1px solid ${accentDim}`,background:"#000",minHeight:0}}>
+          <video ref={videoRef} muted playsInline
+            style={{width:"100%",height:"100%",objectFit:"cover",display:cameraOn?"block":"none"}}/>
+          {!cameraOn && (
+            <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",
+              alignItems:"center",justifyContent:"center",gap:8}}>
+              <span style={{fontSize:24}}>📷</span>
+              <div style={{color:accentDim,fontSize:9,letterSpacing:1,textAlign:"center",padding:"0 12px"}}>
+                {status}
+              </div>
+            </div>
+          )}
+          {/* Corner brackets */}
+          {cameraOn && ([[0,0],[1,0],[0,1],[1,1]] as const).map(([x,y],i) => (
+            <div key={i} style={{position:"absolute",width:12,height:12,zIndex:2,
+              top:y?"auto":6,bottom:y?6:"auto",left:x?"auto":6,right:x?6:"auto",
+              borderTop:!y?`2px solid ${accent}`:"none",
+              borderBottom:y?`2px solid ${accent}`:"none",
+              borderLeft:!x?`2px solid ${accent}`:"none",
+              borderRight:x?`2px solid ${accent}`:"none"}}/>
+          ))}
+          {/* Scan beam animasi */}
+          {scanning && (
+            <div style={{position:"absolute",left:0,right:0,top:0,height:"100%",
+              background:`linear-gradient(180deg,transparent 0%,${accent}18 49%,${accent}30 50%,${accent}18 51%,transparent 100%)`,
+              animation:"scanBeam 1.8s ease-in-out infinite"}}/>
+          )}
+          <canvas ref={canvasRef} style={{display:"none"}}/>
+        </div>
+      ) : (
+        <div style={{flex:1,display:"flex",flexDirection:"column",gap:5}}>
+          <div style={{fontSize:8,color:accentDim,letterSpacing:1}}>{targetLang==="en"?"MANUAL TEXT INPUT":"INPUT TEKS MANUAL"}</div>
+          <textarea value={manualText} onChange={e=>setManualText(e.target.value)}
+            placeholder={targetLang==="en"?"Type or paste text here...":"Ketik atau paste teks di sini..."}
+            style={{flex:1,background:"rgba(0,0,0,0.5)",border:`1px solid ${accentDim}`,
+              borderRadius:6,color:"#cde",fontSize:11,padding:"8px 10px",
+              fontFamily:"monospace",resize:"none",outline:"none",lineHeight:1.6}}/>
+          <div style={{fontSize:8,color:accentDim,textAlign:"right"}}>{manualText.length}/500</div>
+        </div>
+      )}
+
+      {/* ── Status ── */}
+      <div style={{fontSize:9,letterSpacing:1,textAlign:"center",minHeight:13,
+        color:scanning?accent:status.startsWith("✓")?`#0f8`:status.startsWith("⚠")?`#f80`:accentDim}}>
+        {status}
+      </div>
+
+      {/* ── Hasil terjemahan ── */}
+      {translated && (
+        <div style={{padding:"8px 10px",border:`1px solid ${accentDim}`,
+          borderRadius:6,background:`${accent}08`}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+            <div style={{fontSize:8,color:accentDim,letterSpacing:1}}>
+              ASLI
+              {detectedLang && (
+                <span style={{marginLeft:4,color:accent}}>
+                  {(SUPPORTED_LANGS.find(l=>l.code===detectedLang)?.flag??"")} {detectedLang.toUpperCase()}
+                </span>
+              )}
+            </div>
+            <div style={{fontSize:8,color:accentDim,letterSpacing:1}}>
+              TERJEMAHAN
+              <span style={{marginLeft:4,color:accent}}>
+                {dstInfo.flag} {dstLang.toUpperCase()}
+              </span>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+            <div style={{flex:1,fontSize:9,color:"rgba(255,255,255,0.4)",
+              lineHeight:1.5,fontStyle:"italic",borderLeft:`2px solid ${accentDim}`,paddingLeft:6}}>
+              {capturedText.slice(0,150)}{capturedText.length>150?"...":""}
+            </div>
+            <div style={{fontSize:8,color:accentDim,alignSelf:"center"}}>→</div>
+            <div style={{flex:1,fontSize:12,color:accent,fontWeight:"bold",
+              textShadow:`0 0 8px ${accent}`,lineHeight:1.5}}>
+              {translated}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tombol ── */}
+      <div style={{display:"flex",gap:5}}>
+        <button onClick={()=>{ setShowManual(v=>!v); if(cameraOn) stopCamera() }}
+          style={{padding:"6px 8px",fontFamily:"monospace",fontSize:8,letterSpacing:1,
+            background:showManual?`${accent}20`:accentDim,
+            border:`1px solid ${showManual?accent:accentDim}`,
+            color:showManual?accent:"#89a",borderRadius:4,cursor:"pointer"}}>
+          {showManual?"📷":"⌨"}
+        </button>
+
+        {showManual ? (
+          <button onClick={translateManual} disabled={scanning||!manualText.trim()}
+            style={{flex:1,padding:"6px",fontFamily:"monospace",fontSize:9,letterSpacing:1,
+              background:scanning?`${accent}11`:accentDim,
+              border:`1px solid ${scanning||!manualText.trim()?accentDim:accent}`,
+              color:scanning||!manualText.trim()?"#456":accent,
+              borderRadius:4,cursor:"pointer"}}>
+            {scanning?(targetLang==="en"?"⏳ TRANSLATING...":"⏳ MENERJEMAHKAN..."):(targetLang==="en"?"◆ TRANSLATE":"◆ TERJEMAHKAN")}
+          </button>
+        ) : !cameraOn ? (
+          <button onClick={startCamera}
+            style={{flex:1,padding:"6px",fontFamily:"monospace",fontSize:9,letterSpacing:1,
+              background:`${accent}15`,border:`1px solid ${accentDim}`,
+              color:accent,borderRadius:4,cursor:"pointer"}}>
+            {targetLang==="en"?"📷 ENABLE CAMERA":"📷 AKTIFKAN KAMERA"}
+          </button>
+        ) : (
+          <>
+            <button onClick={scanAndTranslate} disabled={scanning}
+              style={{flex:2,padding:"6px",fontFamily:"monospace",fontSize:9,letterSpacing:1,
+                background:scanning?`${accent}11`:`${accent}15`,
+                border:`1px solid ${scanning?accentDim:accent}`,
+                color:scanning?accentDim:accent,borderRadius:4,
+                cursor:scanning?"not-allowed":"pointer"}}>
+              {scanning?(targetLang==="en"?"⏳ SCANNING...":"⏳ MEMINDAI..."):(targetLang==="en"?"◆ SCAN & TRANSLATE":"◆ SCAN & TERJEMAH")}
+            </button>
+            <button onClick={stopCamera}
+              style={{padding:"6px 8px",fontFamily:"monospace",fontSize:9,
+                background:"rgba(255,60,60,0.08)",border:"1px solid rgba(255,60,60,0.3)",
+                color:"#f66",borderRadius:4,cursor:"pointer"}}>
+              STOP
+            </button>
+          </>
+        )}
       </div>
     </div>
   )
@@ -645,7 +1103,7 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
       {!hidden&&(
         <div className="absolute top-0 left-0 right-0 flex justify-between items-center z-5"
           style={{padding:"7px 14px",borderBottom:`1px solid ${accentDim}`,background:"rgba(4,8,15,0.5)"}}>
-          <div className="text-[9px] tracking-[3px]" style={{color:accent}}>V-OPTICS HUD v1.0</div>
+          <div className="text-[9px] tracking-[3px]" style={{color:accent}}>V-OPTICS HUD v2.0</div>
           <div className="text-xs font-bold tracking-[4px]" style={{color:accent,textShadow:`0 0 8px ${accent}`}}>{timeStr}</div>
           <div className="flex gap-2.5 items-center">
             <span className="text-[9px]" style={{color:"#0f8"}}>{t.active}</span>
