@@ -8,11 +8,13 @@ export {}
 
 declare global {
   interface SpeechRecognition extends EventTarget {
-    lang: string; interimResults: boolean; maxAlternatives: number
-    start(): void; stop(): void
+    lang: string; interimResults: boolean; maxAlternatives: number; continuous: boolean
+    start(): void; stop(): void; abort(): void
     onresult: ((event: SpeechRecognitionEvent) => void) | null
     onerror: ((event: SpeechRecognitionErrorEvent) => void) | null
     onend: (() => void) | null
+    onspeechstart: (() => void) | null
+    onspeechend: (() => void) | null
   }
   interface SpeechRecognitionEvent extends Event {
     readonly resultIndex: number; readonly results: SpeechRecognitionResultList
@@ -31,78 +33,84 @@ interface VoicePanelProps {
   onAction?: (action: VoiceAction) => void
 }
 
-const COMMAND_MAP = [
-  {
-    keywords: ["navigasi","navigation","maps","peta","arah","navigate","lokasi","location","gps","map"],
-    action: { type: "navigate", feature: "nav" } as VoiceAction,
-    label: { id: "Buka Navigasi", en: "Open Navigation" },
-    icon: "◈",
-    response: { id: "Membuka navigasi GPS...", en: "Opening GPS navigation..." },
-  },
-  {
-    keywords: ["notif","notification","pemberitahuan","notifikasi","pesan","alert"],
-    action: { type: "navigate", feature: "notify" } as VoiceAction,
-    label: { id: "Buka Notifikasi", en: "Open Notifications" },
-    icon: "◉",
-    response: { id: "Membuka panel notifikasi...", en: "Opening notifications panel..." },
-  },
-  {
-    keywords: ["terjemah","translate","translation","scan teks","baca teks","read text","ocr","bahasa"],
-    action: { type: "navigate", feature: "translate" } as VoiceAction,
-    label: { id: "Buka Terjemahan", en: "Open Translator" },
-    icon: "◆",
-    response: { id: "Membuka mode terjemahan kamera...", en: "Opening camera translator..." },
-  },
-  {
-    keywords: ["ai","asisten","assistant","analisis","analyze","kamera ai","vision","lihat","see","gemini"],
-    action: { type: "navigate", feature: "ai" } as VoiceAction,
-    label: { id: "Buka AI Vision", en: "Open AI Vision" },
-    icon: "⬡",
-    response: { id: "Membuka AI Vision...", en: "Opening AI Vision..." },
-  },
-  {
-    keywords: ["kesehatan","health","detak","jantung","heart","nadi","pulse","monitor"],
-    action: { type: "navigate", feature: "health" } as VoiceAction,
-    label: { id: "Buka Kesehatan", en: "Open Health" },
-    icon: "♥",
-    response: { id: "Membuka monitor kesehatan...", en: "Opening health monitor..." },
-  },
-  {
-    keywords: ["deteksi","detect","detection","objek","object","yolo","kamera","camera","scan","identifikasi"],
-    action: { type: "navigate", feature: "detect" } as VoiceAction,
-    label: { id: "Buka Deteksi Objek", en: "Open Object Detection" },
-    icon: "⬢",
-    response: { id: "Membuka deteksi objek YOLOv8...", en: "Opening YOLOv8 object detection..." },
-  },
-  {
-    keywords: ["sembunyikan","hide","bersih","clean","tutup hud","hide hud","tampilkan","show hud"],
-    action: { type: "toggle_hide_ui" } as VoiceAction,
-    label: { id: "Toggle Clean Mode", en: "Toggle Clean Mode" },
-    icon: "👁",
-    response: { id: "Mengubah mode tampilan HUD...", en: "Toggling HUD display mode..." },
-  },
-  {
-    keywords: ["cafe","kafe","coffee","kopi","resto","restaurant","makan","food","tempat","nearby","terdekat"],
-    action: { type: "search_nearby", query: "cafe restaurant" } as VoiceAction,
-    label: { id: "Cari Tempat Terdekat", en: "Search Nearby Places" },
-    icon: "📍",
-    response: { id: "Membuka navigasi — mencari tempat terdekat...", en: "Opening navigation — searching nearby..." },
-  },
-  {
-    keywords: ["spbu","bensin","fuel","gas","pertamina","pompa"],
-    action: { type: "search_nearby", query: "fuel gas station" } as VoiceAction,
-    label: { id: "Cari SPBU Terdekat", en: "Find Nearest Gas Station" },
-    icon: "⛽",
-    response: { id: "Mencari SPBU terdekat...", en: "Searching nearest gas station..." },
-  },
-  {
-    keywords: ["rumah sakit","hospital","klinik","clinic","apotek","pharmacy","dokter","rs"],
-    action: { type: "search_nearby", query: "hospital pharmacy" } as VoiceAction,
-    label: { id: "Cari Faskes Terdekat", en: "Find Nearest Medical" },
-    icon: "🏥",
-    response: { id: "Mencari fasilitas kesehatan terdekat...", en: "Searching nearest medical facility..." },
-  },
-]
+interface ChatMessage {
+  id: string
+  role: "user" | "assistant"
+  text: string
+  action?: VoiceAction
+  time: string
+}
+
+// Kirim transcript ke Claude untuk diproses sebagai perintah bebas
+async function processWithClaude(transcript: string, lang: string): Promise<{
+  reply: string
+  action: VoiceAction
+}> {
+  const systemPrompt = lang === "en"
+    ? `You are V-Optics, an AI assistant integrated in smart glasses HUD. 
+The user speaks commands naturally. Your job:
+1. Understand what they want
+2. Reply briefly (max 2 sentences, conversational)
+3. Return a JSON action to execute in the HUD
+
+Available actions:
+- {"type":"navigate","feature":"nav"} — open navigation/maps
+- {"type":"navigate","feature":"notify"} — open notifications  
+- {"type":"navigate","feature":"translate"} — open camera translator
+- {"type":"navigate","feature":"ai"} — open AI vision camera
+- {"type":"navigate","feature":"health"} — open health monitor
+- {"type":"navigate","feature":"detect"} — open object detection
+- {"type":"toggle_hide_ui"} — toggle clean mode (hide/show HUD)
+- {"type":"search_nearby","query":"<search term>"} — search nearby places (cafe, hospital, gas station, etc)
+- {"type":"none"} — just reply, no HUD action needed
+
+Respond ONLY in this JSON format (no markdown):
+{"reply":"<your response>","action":<action object>}`
+    : `Kamu adalah V-Optics, asisten AI yang terintegrasi di HUD kacamata pintar.
+Pengguna berbicara dengan perintah bebas. Tugasmu:
+1. Pahami apa yang mereka inginkan
+2. Balas singkat (maks 2 kalimat, seperti percakapan)
+3. Return JSON action untuk dieksekusi di HUD
+
+Aksi yang tersedia:
+- {"type":"navigate","feature":"nav"} — buka navigasi/maps
+- {"type":"navigate","feature":"notify"} — buka notifikasi
+- {"type":"navigate","feature":"translate"} — buka kamera terjemahan
+- {"type":"navigate","feature":"ai"} — buka AI vision kamera
+- {"type":"navigate","feature":"health"} — buka monitor kesehatan
+- {"type":"navigate","feature":"detect"} — buka deteksi objek
+- {"type":"toggle_hide_ui"} — toggle clean mode (sembunyikan/tampilkan HUD)
+- {"type":"search_nearby","query":"<kata pencarian>"} — cari tempat terdekat (cafe, rumah sakit, SPBU, dll)
+- {"type":"none"} — hanya balas, tidak ada aksi HUD
+
+Balas HANYA dalam format JSON ini (tanpa markdown):
+{"reply":"<balasanmu>","action":<objek aksi>}`
+
+  const res = await fetch("/api/claude-vision", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      prompt: `${systemPrompt}\n\nUser said: "${transcript}"`,
+      mode: "voice",
+      textOnly: true, // signal ke route.ts bahwa tidak ada image
+    })
+  })
+
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json()
+  const raw = (data.result ?? "").replace(/```json|```/g, "").trim()
+
+  try {
+    const parsed = JSON.parse(raw)
+    return {
+      reply: parsed.reply ?? "Oke.",
+      action: parsed.action ?? { type: "none" }
+    }
+  } catch {
+    // Kalau Claude tidak return JSON valid, tetap tampilkan reply
+    return { reply: raw || "Oke.", action: { type: "none" } }
+  }
+}
 
 export function VoicePanel({ t, accent: accentProp, onAction }: VoicePanelProps) {
   const accent      = accentProp ?? "#00ffff"
@@ -110,200 +118,345 @@ export function VoicePanel({ t, accent: accentProp, onAction }: VoicePanelProps)
   const accentFaint = `${accent}15`
   const lang        = (t as any).language ?? "id"
 
-  const [status, setStatus] = useState<"idle"|"listening"|"result"|"error">("idle")
-  const [transcript, setTranscript] = useState("")
-  const [matchedEntry, setMatchedEntry] = useState<typeof COMMAND_MAP[0] | null>(null)
-  const [typedRes, setTypedRes] = useState("")
-  const [bars, setBars] = useState(Array(16).fill(4))
-  const [errorMsg, setErrorMsg] = useState("")
-  const [noMatch, setNoMatch] = useState(false)
+  const [autoMode, setAutoMode]     = useState(false)
+  const [listening, setListening]   = useState(false)
+  const [processing, setProcessing] = useState(false)
+  const [interim, setInterim]       = useState("")
+  const [chat, setChat]             = useState<ChatMessage[]>([])
+  const [bars, setBars]             = useState(Array(20).fill(4))
+  const [errorMsg, setErrorMsg]     = useState("")
+  const [silenceTimer, setSilenceTimer] = useState<ReturnType<typeof setTimeout>|null>(null)
+
   const recognitionRef = useRef<globalThis.SpeechRecognition | null>(null)
-  const barsRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const barsRef        = useRef<ReturnType<typeof setInterval> | null>(null)
+  const autoRef        = useRef(false) // ref untuk akses di closure
+  const chatEndRef     = useRef<HTMLDivElement>(null)
 
   const hasSupport = typeof window !== "undefined" &&
     ("SpeechRecognition" in window || "webkitSpeechRecognition" in window)
 
+  // Sync autoRef dengan state
+  useEffect(() => { autoRef.current = autoMode }, [autoMode])
+
+  // Auto scroll chat ke bawah
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [chat])
+
+  const addChat = useCallback((msg: Omit<ChatMessage, "id"|"time">) => {
+    const id   = Date.now().toString()
+    const time = new Date().toLocaleTimeString("id-ID", { hour:"2-digit", minute:"2-digit" })
+    setChat(prev => [...prev.slice(-20), { ...msg, id, time }])
+  }, [])
+
   const stopBars = useCallback(() => {
     if (barsRef.current) { clearInterval(barsRef.current); barsRef.current = null }
-    setBars(Array(16).fill(4))
+    setBars(Array(20).fill(4))
   }, [])
 
-  const typeText = useCallback((text: string) => {
-    setTypedRes(""); let i = 0
-    const iv = setInterval(() => {
-      setTypedRes(text.slice(0, i + 1)); i++
-      if (i >= text.length) clearInterval(iv)
-    }, 25)
+  const startBars = useCallback(() => {
+    barsRef.current = setInterval(
+      () => setBars(Array(20).fill(0).map(() => 4 + Math.random() * 32)), 70
+    )
   }, [])
 
-  const matchCommand = useCallback((text: string) => {
-    const lower = text.toLowerCase()
-    let best: typeof COMMAND_MAP[0] | null = null; let bestScore = 0
-    for (const entry of COMMAND_MAP) {
-      const score = entry.keywords.filter(k => lower.includes(k)).length
-      if (score > bestScore) { bestScore = score; best = entry }
+  // Proses transcript yang sudah final
+  const processTranscript = useCallback(async (text: string) => {
+    if (!text.trim() || text.trim().length < 2) return
+    setInterim("")
+    setProcessing(true)
+
+    addChat({ role: "user", text })
+
+    try {
+      const { reply, action } = await processWithClaude(text, lang)
+      addChat({ role: "assistant", text: reply, action })
+
+      // Eksekusi aksi di HUD
+      if (action.type !== "none") {
+        setTimeout(() => onAction?.(action), 200)
+      }
+    } catch {
+      addChat({
+        role: "assistant",
+        text: lang === "en"
+          ? "Sorry, I couldn't process that. Check your API connection."
+          : "Maaf, tidak bisa memproses. Cek koneksi API."
+      })
     }
-    return bestScore > 0 ? best : null
-  }, [])
 
-  const processTranscript = useCallback((text: string) => {
-    const match = matchCommand(text)
-    if (match) {
-      setMatchedEntry(match); setNoMatch(false); setStatus("result")
-      typeText(lang === "en" ? match.response.en : match.response.id)
-      setTimeout(() => onAction?.(match.action), 300)
-    } else {
-      setMatchedEntry(null); setNoMatch(true); setStatus("result"); setTypedRes(text)
-    }
-  }, [matchCommand, typeText, onAction, lang])
+    setProcessing(false)
+  }, [lang, addChat, onAction])
 
-  const startListening = useCallback(() => {
-    if (!hasSupport) { setStatus("error"); setErrorMsg("Browser tidak mendukung voice recognition"); return }
-    try { recognitionRef.current?.stop() } catch {}
+  // Start recognition session
+  const startRecognition = useCallback(() => {
     const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition
     if (!SR) return
+
     const recognition = new SR()
     recognitionRef.current = recognition
-    recognition.lang = lang === "en" ? "en-US" : "id-ID"
-    recognition.interimResults = true; recognition.maxAlternatives = 5
-    setStatus("listening"); setTranscript(""); setMatchedEntry(null); setTypedRes(""); setErrorMsg(""); setNoMatch(false)
-    barsRef.current = setInterval(() => setBars(Array(16).fill(0).map(() => 4 + Math.random() * 28)), 80)
+    recognition.lang            = lang === "en" ? "en-US" : "id-ID"
+    recognition.interimResults  = true
+    recognition.maxAlternatives = 3
+    recognition.continuous      = false // restart manual supaya lebih stabil
+
     recognition.onresult = (e: SpeechRecognitionEvent) => {
-      let interim = "", final = ""
+      let finalText = "", interimText = ""
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) final += e.results[i][0].transcript
-        else interim += e.results[i][0].transcript
+        if (e.results[i].isFinal) finalText += e.results[i][0].transcript
+        else interimText += e.results[i][0].transcript
       }
-      setTranscript(final || interim)
+      setInterim(interimText)
+
+      // Reset silence timer setiap ada speech
+      if (silenceTimer) clearTimeout(silenceTimer)
+      if (finalText) {
+        setSilenceTimer(setTimeout(() => {
+          processTranscript(finalText)
+        }, 600)) // tunggu 600ms sebelum proses (jeda bicara)
+      }
     }
+
+    recognition.onspeechstart = () => {
+      startBars()
+    }
+
     recognition.onend = () => {
       stopBars()
-      setTranscript(prev => { if (prev) processTranscript(prev); else setStatus("idle"); return prev })
+      setListening(false)
+      setInterim("")
+      // Auto restart kalau mode auto masih aktif
+      if (autoRef.current && !processing) {
+        setTimeout(() => {
+          if (autoRef.current) startRecognition()
+        }, 300)
+      }
     }
+
     recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
       stopBars()
-      if (e.error === "not-allowed") { setStatus("error"); setErrorMsg("Izin mikrofon ditolak — aktifkan di browser") }
-      else if (e.error === "no-speech") setStatus("idle")
-      else { setStatus("error"); setErrorMsg("Terjadi kesalahan. Coba lagi.") }
+      if (e.error === "not-allowed") {
+        setErrorMsg(lang === "en" ? "Microphone permission denied" : "Izin mikrofon ditolak")
+        setAutoMode(false); autoRef.current = false
+      } else if (e.error === "no-speech") {
+        // Restart langsung kalau tidak ada suara
+        if (autoRef.current) {
+          setTimeout(() => { if (autoRef.current) startRecognition() }, 200)
+        }
+      }
+      // Errors lain: restart
     }
-    try { recognition.start() } catch { stopBars(); setStatus("error"); setErrorMsg("Gagal memulai voice recognition") }
-  }, [hasSupport, lang, stopBars, processTranscript])
 
-  const triggerQuick = useCallback((entry: typeof COMMAND_MAP[0]) => {
+    try {
+      recognition.start()
+      setListening(true)
+      setErrorMsg("")
+    } catch {
+      setListening(false)
+    }
+  }, [lang, processing, startBars, stopBars, processTranscript, silenceTimer])
+
+  // Toggle auto mode
+  const toggleAuto = useCallback(() => {
+    if (!hasSupport) {
+      setErrorMsg(lang === "en"
+        ? "Browser doesn't support voice. Use Chrome/Edge."
+        : "Browser tidak support voice. Gunakan Chrome/Edge.")
+      return
+    }
+    if (autoMode) {
+      // Matikan
+      autoRef.current = false
+      setAutoMode(false)
+      try { recognitionRef.current?.stop() } catch {}
+      stopBars()
+      setListening(false)
+    } else {
+      // Nyalakan
+      setAutoMode(true)
+      autoRef.current = true
+      startRecognition()
+    }
+  }, [autoMode, hasSupport, lang, startRecognition, stopBars])
+
+  // Manual tap to speak (single shot)
+  const tapToSpeak = useCallback(() => {
+    if (!hasSupport) return
+    if (listening) {
+      try { recognitionRef.current?.stop() } catch {}
+      return
+    }
+    // Single shot — tidak auto restart
+    autoRef.current = false
+    startRecognition()
+  }, [hasSupport, listening, startRecognition])
+
+  // Cleanup
+  useEffect(() => () => {
+    autoRef.current = false
     stopBars()
-    setTranscript(lang === "en" ? entry.label.en : entry.label.id)
-    setMatchedEntry(entry); setNoMatch(false); setStatus("result")
-    typeText(lang === "en" ? entry.response.en : entry.response.id)
-    setTimeout(() => onAction?.(entry.action), 300)
-  }, [stopBars, typeText, onAction, lang])
-
-  useEffect(() => () => { stopBars(); try { recognitionRef.current?.stop() } catch {} }, [stopBars])
+    try { recognitionRef.current?.stop() } catch {}
+    if (silenceTimer) clearTimeout(silenceTimer)
+  }, [])
 
   return (
-    <div className="flex flex-col gap-4">
+    <div style={{display:"flex",flexDirection:"column",gap:12,height:"100%",minHeight:0}}>
 
-      {/* Mic button */}
-      <div className="flex flex-col items-center gap-2.5">
-        <button onClick={startListening} disabled={status === "listening"}
-          className="w-18 h-18 rounded-full flex items-center justify-center relative transition-all duration-300"
-          style={{
-            cursor: status === "listening" ? "not-allowed" : "pointer",
-            background: status === "listening" ? `${accent}30` : accentFaint,
-            border: `2px solid ${status === "listening" ? accent : status === "error" ? "#f44" : accentDim}`,
-            boxShadow: status === "listening" ? `0 0 30px ${accent}55` : `0 0 10px ${accent}22`,
-          }}>
-          {status === "listening" && (
-            <div className="absolute rounded-full" style={{ inset:-6, border:`2px solid ${accent}33`, animation:"ripple 1s ease-out infinite" }}/>
+      {/* ── Auto mode toggle ── */}
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        {/* Auto listen toggle */}
+        <div onClick={toggleAuto}
+          style={{flex:1,display:"flex",alignItems:"center",justifyContent:"space-between",
+            padding:"10px 14px",borderRadius:8,cursor:"pointer",transition:"all 0.2s",
+            background:autoMode?`${accent}20`:accentFaint,
+            border:`1px solid ${autoMode?accent:accentDim}`}}>
+          <div>
+            <div style={{fontSize:10,fontWeight:"bold",color:autoMode?accent:"#89a",letterSpacing:1}}>
+              {autoMode
+                ? (lang==="en"?"● AUTO LISTENING":"● AUTO MENDENGARKAN")
+                : (lang==="en"?"AUTO LISTEN":"AUTO DENGARKAN")}
+            </div>
+            <div style={{fontSize:8,color:accentDim,marginTop:2}}>
+              {autoMode
+                ? (lang==="en"?"Tap to stop":"Ketuk untuk berhenti")
+                : (lang==="en"?"Always on, no button needed":"Selalu aktif, tanpa tombol")}
+            </div>
+          </div>
+          {/* Toggle switch */}
+          <div style={{width:36,height:18,borderRadius:9,
+            background:autoMode?`${accent}44`:accentDim,
+            position:"relative",transition:"background 0.2s"}}>
+            <div style={{position:"absolute",width:14,height:14,borderRadius:"50%",top:2,
+              left:autoMode?20:2,transition:"left 0.2s",
+              background:autoMode?accent:"#567",
+              boxShadow:autoMode?`0 0 6px ${accent}`:"none"}}/>
+          </div>
+        </div>
+
+        {/* Manual tap button */}
+        <button onClick={tapToSpeak}
+          style={{width:48,height:48,borderRadius:"50%",cursor:"pointer",
+            background:listening?`${accent}30`:accentFaint,
+            border:`2px solid ${listening?accent:accentDim}`,
+            color:accent,fontSize:18,transition:"all 0.2s",flexShrink:0,
+            boxShadow:listening?`0 0 20px ${accent}55`:"none",
+            position:"relative",overflow:"hidden"}}>
+          {listening && (
+            <div style={{position:"absolute",inset:-4,borderRadius:"50%",
+              border:`2px solid ${accent}44`,animation:"ripple 1s ease-out infinite"}}/>
           )}
-          <span className="text-[26px]" style={{ filter: status==="listening" ? `drop-shadow(0 0 6px ${accent})` : "none" }}>🎤</span>
+          🎤
         </button>
-
-        <div className="flex items-center gap-0.5 h-9">
-          {bars.map((h, i) => (
-            <div key={i} className="w-0.75 rounded-sm transition-[height] duration-75"
-              style={{ background: accent, height: status==="listening" ? h : 4, opacity: status==="listening" ? 0.7 : 0.2 }}/>
-          ))}
-        </div>
-
-        <div className="text-[10px] tracking-widest" style={{
-          color: status==="listening" ? accent : status==="error" ? "#f44" : accentDim,
-          textShadow: status==="listening" ? `0 0 8px ${accent}` : "none",
-        }}>
-          {status==="listening" ? (lang==="en"?"● LISTENING...":"● MENDENGARKAN...")
-            : status==="error" ? "● ERROR"
-            : (lang==="en"?"PRESS TO SPEAK":"TEKAN UNTUK BICARA")}
-        </div>
       </div>
 
-      {status==="listening" && transcript && (
-        <div className="rounded-md text-[11px] italic text-center font-mono"
-          style={{ padding:"8px 14px", border:`1px solid ${accentDim}`, background:accentFaint, color:`${accent}88` }}>
-          {`"${transcript}"`}
-        </div>
-      )}
-
-      {status==="error" && errorMsg && (
-        <div className="rounded-md text-[11px] text-center" style={{ padding:"10px 14px", border:"1px solid rgba(255,68,68,0.2)", background:"rgba(255,60,60,0.06)", color:"#f88" }}>
-          {errorMsg}
-        </div>
-      )}
-
-      {status==="result" && (
-        <div className="rounded-lg" style={{ padding:"12px 14px", border:`1px solid ${accentDim}`, background:accentFaint, animation:"fadeIn 0.3s ease" }}>
-          {!noMatch ? (
-            <>
-              <div className="text-[9px] tracking-widest mb-2" style={{ color:accentDim }}>
-                {lang==="en"?"COMMAND RECOGNIZED":"PERINTAH DIKENALI"}
-              </div>
-              <div className="flex items-center gap-2 mb-2">
-                <span style={{ fontSize:18 }}>{matchedEntry?.icon}</span>
-                <span className="text-xs font-bold" style={{ color:accent }}>
-                  {lang==="en" ? matchedEntry?.label.en : matchedEntry?.label.id}
-                </span>
-              </div>
-              <div className="text-[11px] leading-relaxed" style={{ color:"#0f8" }}>
-                {typedRes}<span style={{ animation:"blink 0.8s infinite" }}>▌</span>
-              </div>
-              <div className="mt-2 text-[8px] tracking-widest" style={{ color:`${accent}55` }}>
-                {(matchedEntry?.action as any)?.feature && `→ NAVIGASI KE: ${(matchedEntry?.action as any).feature.toUpperCase()}`}
-                {(matchedEntry?.action as any)?.query && `→ MENCARI: ${(matchedEntry?.action as any).query}`}
-                {matchedEntry?.action.type === "toggle_hide_ui" && "→ TOGGLE CLEAN MODE"}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="text-xs mb-1" style={{ color:"#cde" }}>{`"${transcript}"`}</div>
-              <div className="text-[10px]" style={{ color:"#f80" }}>
-                ⚠ {lang==="en"?"Not recognized. Try quick commands below.":"Tidak dikenali. Coba perintah cepat di bawah."}
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      <div className="text-[9px] text-center font-mono" style={{ color:"#456" }}>
-        {lang==="en"?"Say a command or tap below to control HUD directly":"Ucapkan atau ketuk perintah untuk kontrol HUD langsung"}
+      {/* ── Waveform ── */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",
+        gap:2,height:32,padding:"0 8px"}}>
+        {bars.map((h,i) => (
+          <div key={i} style={{
+            width:3,borderRadius:2,transition:"height 0.07s ease",
+            background:`linear-gradient(to top,${accent}88,${accent})`,
+            height: listening ? h : autoMode ? 4 + Math.sin(Date.now()/300+i)*2 : 4,
+            opacity: listening ? 0.8 : autoMode ? 0.3 : 0.15,
+          }}/>
+        ))}
       </div>
 
-      <div>
-        <div className="text-[9px] tracking-widest mb-2" style={{ color:`${accent}44` }}>
-          {lang==="en"?"QUICK COMMANDS":"PERINTAH CEPAT"}
+      {/* ── Status ── */}
+      <div style={{textAlign:"center",fontSize:9,letterSpacing:2,minHeight:12,
+        color: processing?"#ff0":listening?accent:autoMode?`${accent}66`:accentDim}}>
+        {processing
+          ? (lang==="en"?"⏳ PROCESSING...":"⏳ MEMPROSES...")
+          : listening
+            ? (lang==="en"?"● LISTENING — speak now":"● MENDENGARKAN — bicara sekarang")
+            : autoMode
+              ? (lang==="en"?"◌ WAITING FOR SPEECH...":"◌ MENUNGGU SUARA...")
+              : (lang==="en"?"TAP MIC OR ENABLE AUTO":"KETUK MIC ATAU AKTIFKAN AUTO")}
+      </div>
+
+      {/* ── Interim transcript ── */}
+      {interim && (
+        <div style={{padding:"6px 10px",borderRadius:6,fontSize:10,fontStyle:"italic",
+          color:`${accent}88`,border:`1px solid ${accentDim}`,background:accentFaint,
+          textAlign:"center"}}>
+          "{interim}..."
         </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          {COMMAND_MAP.map((entry, i) => (
-            <div key={i} onClick={() => triggerQuick(entry)}
-              className="flex items-center gap-2 rounded-[5px] cursor-pointer transition-all duration-200"
-              style={{ padding:"7px 10px", border:`1px solid ${accentDim}`, background:accentFaint }}
-              onMouseEnter={e => (e.currentTarget.style.background = `${accent}20`)}
-              onMouseLeave={e => (e.currentTarget.style.background = accentFaint)}>
-              <span style={{ fontSize:13 }}>{entry.icon}</span>
-              <span className="text-[10px] leading-tight" style={{ color:"#89a" }}>
-                {lang==="en" ? entry.label.en : entry.label.id}
-              </span>
+      )}
+
+      {/* ── Error ── */}
+      {errorMsg && (
+        <div style={{padding:"8px 12px",borderRadius:6,fontSize:10,color:"#f88",
+          border:"1px solid rgba(255,80,80,0.3)",background:"rgba(255,60,60,0.06)"}}>
+          ⚠ {errorMsg}
+        </div>
+      )}
+
+      {/* ── Chat history ── */}
+      <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",
+        gap:6,minHeight:0,paddingRight:2}}>
+        {chat.length === 0 && (
+          <div style={{textAlign:"center",color:accentDim,fontSize:9,
+            letterSpacing:1,marginTop:12,lineHeight:1.8}}>
+            {lang==="en"
+              ? "Say anything — commands, questions, places nearby...\nV-Optics AI will understand and act."
+              : "Ucapkan apa saja — perintah, pertanyaan, tempat terdekat...\nV-Optics AI akan memahami dan bertindak."}
+          </div>
+        )}
+
+        {chat.map(msg => (
+          <div key={msg.id} style={{
+            display:"flex",flexDirection:"column",
+            alignItems:msg.role==="user"?"flex-end":"flex-start",
+            animation:"fadeIn 0.2s ease",
+          }}>
+            <div style={{
+              maxWidth:"85%",padding:"7px 11px",borderRadius:msg.role==="user"?
+                "12px 12px 2px 12px":"12px 12px 12px 2px",
+              background:msg.role==="user"?`${accent}22`:accentFaint,
+              border:`1px solid ${msg.role==="user"?accentDim:`${accent}22`}`,
+            }}>
+              <div style={{fontSize:10,lineHeight:1.5,
+                color:msg.role==="user"?accent:"#cde"}}>
+                {msg.text}
+              </div>
+              {/* Action badge */}
+              {msg.action && msg.action.type !== "none" && (
+                <div style={{marginTop:4,fontSize:7,letterSpacing:1,
+                  color:`${accent}66`,display:"flex",alignItems:"center",gap:4}}>
+                  <span style={{color:accent}}>▸</span>
+                  {msg.action.type==="navigate" && `HUD → ${(msg.action as any).feature.toUpperCase()}`}
+                  {msg.action.type==="search_nearby" && `NEARBY → ${(msg.action as any).query}`}
+                  {msg.action.type==="toggle_hide_ui" && "TOGGLE CLEAN MODE"}
+                </div>
+              )}
+            </div>
+            <div style={{fontSize:7,color:accentDim,marginTop:2,
+              marginLeft:msg.role==="user"?0:6,marginRight:msg.role==="user"?6:0}}>
+              {msg.role==="user"?"You":"V-Optics AI"} · {msg.time}
+            </div>
+          </div>
+        ))}
+        <div ref={chatEndRef}/>
+      </div>
+
+      {/* ── Contoh perintah ── */}
+      {chat.length === 0 && (
+        <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+          {(lang==="en"
+            ? ["nearest cafe","open navigation","translate this text","detect objects","hide HUD","how's my health?"]
+            : ["cafe terdekat","buka navigasi","terjemahkan teks ini","deteksi objek","sembunyikan HUD","cek kesehatan"]
+          ).map(ex => (
+            <div key={ex} onClick={() => processTranscript(ex)}
+              style={{padding:"4px 10px",borderRadius:20,fontSize:8,cursor:"pointer",
+                border:`1px solid ${accentDim}`,background:accentFaint,color:`${accent}88`,
+                letterSpacing:0.5,transition:"all 0.15s"}}
+              onMouseEnter={e=>(e.currentTarget.style.background=`${accent}20`)}
+              onMouseLeave={e=>(e.currentTarget.style.background=accentFaint)}>
+              {ex}
             </div>
           ))}
         </div>
-      </div>
+      )}
 
     </div>
   )

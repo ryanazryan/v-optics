@@ -380,7 +380,7 @@ function TranslatePanel({accent,accentDim,accentFaint,targetLang}:{
 
   const scanAndTranslate = async () => {
     if (!videoRef.current || !canvasRef.current) return
-    setScanning(true); setTranslated(""); setStatus(targetLang==="en" ? "Capturing camera frame..." : "Mengambil frame kamera...")
+    setScanning(true); setTranslated(""); setStatus(targetLang==="en" ? "Capturing frame..." : "Mengambil frame kamera...")
 
     const canvas = canvasRef.current
     const ctx    = canvas.getContext("2d")!
@@ -388,64 +388,121 @@ function TranslatePanel({accent,accentDim,accentFaint,targetLang}:{
     canvas.height = videoRef.current.videoHeight || 720
     ctx.drawImage(videoRef.current, 0, 0)
 
-    // Preprocessing untuk akurasi OCR
-    const processedCanvas = preprocessCanvas(canvas, ctx)
+    // Untuk Arab/China/Korea/Jepang → pakai Claude Vision (jauh lebih akurat)
+    const useVision = ["ar","zh","ja","ko"].includes(srcLang) ||
+      (srcLang === "auto") // auto juga pakai vision supaya lebih akurat
 
+    if (useVision) {
+      // Preprocessing ringan saja (tidak perlu grayscale untuk Vision API)
+      const base64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1]
+      setStatus(targetLang==="en" ? "Sending to Claude Vision..." : "Mengirim ke Claude Vision...")
+
+      try {
+        const to = dstLang
+        const toLangName = SUPPORTED_LANGS.find(l=>l.code===to)?.label ?? to
+
+        const prompt = targetLang === "en"
+          ? `You are an OCR and translation engine for V-Optics smart glasses. In this image:
+1. Extract ALL text you can see (preserve original script/characters exactly)
+2. Detect the language of the text
+3. Translate the extracted text to ${toLangName}
+
+Respond ONLY in this exact JSON format (no markdown, no extra text):
+{"original":"<extracted text>","lang":"<detected language>","translated":"<translation to ${toLangName}>"}`
+          : `Kamu adalah mesin OCR dan terjemahan untuk kacamata pintar V-Optics. Dari gambar ini:
+1. Ekstrak SEMUA teks yang terlihat (pertahankan karakter asli persis)
+2. Deteksi bahasa teks tersebut
+3. Terjemahkan ke ${toLangName}
+
+Balas HANYA dalam format JSON ini (tanpa markdown, tanpa teks lain):
+{"original":"<teks yang diekstrak>","lang":"<bahasa terdeteksi>","translated":"<terjemahan ke ${toLangName}>"}`
+
+        const res = await fetch("/api/claude-vision", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: base64, prompt, mode: "ocr" })
+        })
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json()
+        const raw = data.result ?? ""
+
+        // Parse JSON response
+        try {
+          const cleaned = raw.replace(/```json|```/g, "").trim()
+          const parsed = JSON.parse(cleaned)
+          if (parsed.original && parsed.translated) {
+            setCapturedText(parsed.original)
+            setTranslated(parsed.translated)
+            const detLang = parsed.lang ?? "auto"
+            setDetectedLang(detLang.toLowerCase().slice(0,2))
+            const fromLabel = parsed.lang ?? detLang
+            const toLabel = SUPPORTED_LANGS.find(l=>l.code===to)?.label ?? to
+            setStatus(`✓ ${fromLabel} → ${toLabel}`)
+          } else {
+            throw new Error("Invalid JSON structure")
+          }
+        } catch {
+          // Claude tidak return JSON — coba parse manual
+          if (raw.length > 5) {
+            setCapturedText(raw)
+            setTranslated(raw)
+            setStatus(targetLang==="en" ? "✓ Vision response received" : "✓ Respons Vision diterima")
+          } else {
+            setStatus(targetLang==="en" ? "⚠ Could not read text from image" : "⚠ Tidak ada teks terbaca dari gambar")
+          }
+        }
+      } catch (e: any) {
+        // Fallback ke Tesseract kalau Vision gagal
+        setStatus(targetLang==="en" ? "Vision failed, trying Tesseract..." : "Vision gagal, mencoba Tesseract...")
+        await runTesseract(canvas)
+      }
+    } else {
+      // Latin script (EN/ID/FR/DE/ES/RU) → Tesseract sudah cukup akurat
+      const processedCanvas = preprocessCanvas(canvas, ctx)
+      await runTesseract(processedCanvas)
+    }
+
+    setScanning(false)
+  }
+
+  const runTesseract = async (canvasEl: HTMLCanvasElement) => {
     try {
       setStatus(targetLang==="en" ? "Loading Tesseract OCR..." : "Memuat Tesseract OCR...")
       const Tesseract = await import("tesseract.js")
 
-      // Tentukan bahasa OCR
-      let ocrLangs: string
-      if (srcLang === "auto") {
-        // Scan semua bahasa yang mungkin
-        ocrLangs = "eng+ind+jpn+chi_sim+kor+ara+fra+deu+spa+rus"
-      } else {
-        const found = SUPPORTED_LANGS.find(l => l.code === srcLang)
-        // Selalu tambah eng sebagai fallback
-        ocrLangs = found ? `${found.tesseract}+eng` : "eng"
-      }
+      const ocrLangs = srcLang === "auto" ? "eng+ind+fra+deu+spa+rus"
+        : (() => {
+            const found = SUPPORTED_LANGS.find(l => l.code === srcLang)
+            return found ? `${found.tesseract}+eng` : "eng"
+          })()
 
-      setStatus(targetLang==="en" ? `OCR: scanning (${ocrLangs.split("+").length} langs)...` : `OCR: memindai (${ocrLangs.split("+").length} bahasa)...`)
+      setStatus(`OCR: ${ocrLangs.split("+").length} langs...`)
 
       const { data: { text, confidence, words } } = await (Tesseract.recognize as any)(
-        processedCanvas,
-        ocrLangs,
-        {
-          logger: (m: any) => {
-            if (m.status === "recognizing text") {
-              setStatus(`OCR ${Math.round(m.progress * 100)}%`)
-            }
-          }
-        }
+        canvasEl, ocrLangs,
+        { logger: (m: any) => { if (m.status==="recognizing text") setStatus(`OCR ${Math.round(m.progress*100)}%`) } }
       )
 
-      // Filter kata dengan confidence rendah
       const filteredWords = words
-        ? (words as any[])
-            .filter((w: any) => w.confidence > 40)
-            .map((w: any) => w.text)
-            .join(" ")
+        ? (words as any[]).filter((w:any) => w.confidence > 40).map((w:any) => w.text).join(" ")
         : text
 
       if (!filteredWords.trim() || confidence < 15) {
-        setStatus(targetLang==="en" ? "⚠ Text unreadable. Tips: ✓ Focus camera ✓ Good lighting ✓ Text not tilted" : "⚠ Teks tidak terbaca. Tips: ✓ Fokuskan kamera ✓ Cukup cahaya ✓ Teks tidak miring")
-        setScanning(false); return
+        setStatus(targetLang==="en"
+          ? "⚠ Text unreadable. Tips: ✓ Focus ✓ Good lighting ✓ Text not tilted"
+          : "⚠ Teks tidak terbaca. Tips: ✓ Fokus ✓ Cahaya cukup ✓ Tidak miring")
+        return
       }
 
-      setStatus(targetLang==="en" ? `OCR done (${Math.round(confidence)}% accuracy) — translating...` : `OCR selesai (${Math.round(confidence)}% akurasi) — menerjemahkan...`)
+      setStatus(targetLang==="en"
+        ? `OCR done (${Math.round(confidence)}%) — translating...`
+        : `OCR selesai (${Math.round(confidence)}%) — menerjemahkan...`)
       await processText(filteredWords)
-
     } catch (e: any) {
-      if (e?.message?.includes("tesseract") || e?.message?.includes("Cannot find module")) {
-        setStatus(targetLang==="en" ? "⚠ Run: npm install tesseract.js" : "⚠ Jalankan: npm install tesseract.js")
-      } else {
-        setStatus((targetLang==="en"?"⚠ Error: ":"⚠ Error: ") + (e?.message ?? "unknown"))
-      }
+      setStatus("⚠ " + (e?.message?.includes("tesseract") ? "Run: npm install tesseract.js" : (e?.message ?? "OCR error")))
     }
-    setScanning(false)
   }
-
   const translateManual = async () => {
     if (!manualText.trim()) return
     setScanning(true); setTranslated("")
