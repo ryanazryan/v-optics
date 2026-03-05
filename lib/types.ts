@@ -1,4 +1,4 @@
-export interface HUDSettings {
+export type HUDSettings = {
   brightness: number
   language: "id" | "en"
   notifications: boolean
@@ -8,6 +8,8 @@ export interface HUDSettings {
   objectDetect: boolean
   voiceControl: boolean
   nightMode: boolean
+  accentColor: string  
+  hideUI: boolean    
 }
 
 export const defaultSettings: HUDSettings = {
@@ -20,4 +22,6 @@ export const defaultSettings: HUDSettings = {
   objectDetect: true,
   voiceControl: true,
   nightMode: false,
+  accentColor: "#00ffff",
+  hideUI: false,
 }
