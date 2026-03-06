@@ -31,9 +31,124 @@ function calcDist(la1: number, lo1: number, la2: number, lo2: number): string {
   const m = R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))
   return m<1000?`${Math.round(m)}m`:`${(m/1000).toFixed(1)}km`
 }
-function getMapUrl(lat: number, lng: number) {
-  const d=0.003
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${lng-d},${lat-d},${lng+d},${lat+d}&layer=mapnik&marker=${lat},${lng}`
+// ── Leaflet Map Component with real routing ──────────────────────────────────
+function LeafletMap({ lat, lng, destLat, destLng, accent, accentDim }: {
+  lat: number; lng: number; destLat?: number; destLng?: number
+  accent: string; accentDim: string
+}) {
+  const mapRef = useRef<HTMLDivElement>(null)
+  const leafletRef = useRef<any>(null)
+  const routeRef = useRef<any>(null)
+  const markersRef = useRef<any[]>([])
+
+  const loadScript = (src: string, integrity?: string): Promise<void> => new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) { resolve(); return }
+    const s = document.createElement("script"); s.src = src
+    if (integrity) { s.integrity = integrity; s.crossOrigin = "anonymous" }
+    s.onload = () => resolve(); s.onerror = reject
+    document.head.appendChild(s)
+  })
+  const loadCSS = (href: string) => {
+    if (document.querySelector(`link[href="${href}"]`)) return
+    const l = document.createElement("link"); l.rel = "stylesheet"; l.href = href
+    document.head.appendChild(l)
+  }
+
+  const initMap = useCallback(async () => {
+    if (!mapRef.current) return
+    try {
+      loadCSS("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css")
+      await loadScript("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js")
+      const L = (window as any).L
+      if (!L || leafletRef.current) return
+
+      // Init map dengan Carto Dark tiles (mirip Google Maps dark mode)
+      const map = L.map(mapRef.current, { zoomControl: false, attributionControl: false })
+      leafletRef.current = map
+
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+        maxZoom: 19
+      }).addTo(map)
+
+      // Custom marker icons
+      const pulseIcon = L.divIcon({
+        html: `<div style="width:14px;height:14px;border-radius:50%;background:${accent};box-shadow:0 0 0 4px ${accent}44,0 0 12px ${accent};animation:none;border:2px solid #fff"></div>`,
+        className: "", iconSize: [14, 14], iconAnchor: [7, 7]
+      })
+      const destIcon = L.divIcon({
+        html: `<div style="width:20px;height:20px;position:relative"><div style="width:16px;height:16px;background:#ff4444;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;position:absolute;top:0;left:2px"></div></div>`,
+        className: "", iconSize: [20, 20], iconAnchor: [10, 18]
+      })
+
+      // Marker posisi user
+      const userMarker = L.marker([lat, lng], { icon: pulseIcon }).addTo(map)
+      markersRef.current = [userMarker]
+      map.setView([lat, lng], 16)
+
+    } catch (e) { console.error("Leaflet init failed:", e) }
+  }, [])
+
+  // Update route saat destination berubah
+  useEffect(() => {
+    const L = (window as any).L
+    if (!L || !leafletRef.current) return
+    const map = leafletRef.current
+
+    // Hapus marker destination lama
+    markersRef.current.slice(1).forEach(m => map.removeLayer(m))
+    markersRef.current = markersRef.current.slice(0, 1)
+    // Hapus rute lama
+    if (routeRef.current) { map.removeLayer(routeRef.current); routeRef.current = null }
+
+    if (!destLat || !destLng) {
+      map.setView([lat, lng], 16)
+      return
+    }
+
+    // Marker destination
+    const destIcon = L.divIcon({
+      html: `<div style="width:20px;height:24px;position:relative"><div style="width:16px;height:16px;background:#ff4444;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;position:absolute;top:0;left:2px;box-shadow:0 0 8px #ff4444"></div></div>`,
+      className: "", iconSize: [20, 24], iconAnchor: [10, 22]
+    })
+    const dm = L.marker([destLat, destLng], { icon: destIcon }).addTo(map)
+    markersRef.current.push(dm)
+
+    // Fit bounds supaya kedua titik keliatan
+    const bounds = L.latLngBounds([[lat, lng], [destLat, destLng]])
+    map.fitBounds(bounds, { padding: [30, 30] })
+
+    // Fetch rute dari OSRM
+    fetch(`https://router.project-osrm.org/route/v1/driving/${lng},${lat};${destLng},${destLat}?overview=full&geometries=geojson`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.routes?.[0]?.geometry) {
+          const coords = data.routes[0].geometry.coordinates.map((c: number[]) => [c[1], c[0]])
+          routeRef.current = L.polyline(coords, {
+            color: accent, weight: 4, opacity: 0.9,
+            dashArray: undefined
+          }).addTo(map)
+          map.fitBounds(routeRef.current.getBounds(), { padding: [30, 30] })
+        }
+      })
+      .catch(() => {
+        // Fallback: garis lurus
+        routeRef.current = L.polyline([[lat, lng], [destLat, destLng]], {
+          color: accent, weight: 3, opacity: 0.7, dashArray: "6 4"
+        }).addTo(map)
+      })
+  }, [destLat, destLng])
+
+  // Update posisi user marker
+  useEffect(() => {
+    const L = (window as any).L
+    if (!L || !leafletRef.current || !markersRef.current[0]) return
+    markersRef.current[0].setLatLng([lat, lng])
+  }, [lat, lng])
+
+  useEffect(() => { initMap() }, [])
+  useEffect(() => () => { if (leafletRef.current) { leafletRef.current.remove(); leafletRef.current = null } }, [])
+
+  return <div ref={mapRef} style={{ width: "100%", height: "100%", borderRadius: 6 }} />
 }
 function catIcon(c: string) {
   return c==="cafe"?"☕":c==="restaurant"||c==="fast_food"||c==="food_court"?"🍽":
@@ -49,6 +164,28 @@ function catIcon(c: string) {
     c==="police"?"🚔":c==="post_office"?"📮":"📍"
 }
 
+// ── Country code helper ──────────────────────────────────────────────────────
+const COUNTRY_CODES: Record<string,string> = {
+  "indonesia":"id","malaysia":"my","singapore":"sg","thailand":"th",
+  "philippines":"ph","vietnam":"vn","myanmar":"mm","cambodia":"kh",
+  "laos":"la","brunei":"bn","timor-leste":"tl","australia":"au",
+  "japan":"jp","china":"cn","south korea":"kr","india":"in",
+  "united states":"us","united kingdom":"gb","germany":"de",
+  "france":"fr","netherlands":"nl","spain":"es","italy":"it",
+}
+async function getCountryCode(countryName: string): Promise<string> {
+  const key = countryName.toLowerCase().trim()
+  if (COUNTRY_CODES[key]) return COUNTRY_CODES[key]
+  // Fallback: ambil 2 huruf pertama nama negara tidak selalu benar,
+  // tapi Nominatim juga terima nama lengkap via &countrycodes= kalau huruf 2 char ISO
+  // Coba fetch dari restcountries
+  try {
+    const r = await fetch(`https://restcountries.com/v3.1/name/${encodeURIComponent(countryName)}?fields=cca2`)
+    const d = await r.json()
+    return d[0]?.cca2?.toLowerCase() ?? ""
+  } catch { return "" }
+}
+
 // ── GPS HOOK ──────────────────────────────────────────────────────────────────
 function useGPS() {
   const [coords, setCoords] = useState<{lat:number;lng:number}|null>(null)
@@ -58,9 +195,12 @@ function useGPS() {
   const [loading, setLoading] = useState(true)
   const [nearby, setNearby] = useState<NearbyPlace[]>([])
   const [loadingNearby, setLoadingNearby] = useState(false)
-  const lastRef = useRef<{lat:number;lng:number}|null>(null)
+  const lastRef        = useRef<{lat:number;lng:number}|null>(null)
+  const activeSearchRef = useRef(false) // true = user sedang search spesifik, block fetchNearby
 
   const fetchNearby = useCallback(async (lat: number, lng: number) => {
+    // Jangan timpa hasil search spesifik user
+    if (activeSearchRef.current) return
     if (lastRef.current) {
       const d = calcDist(lat,lng,lastRef.current.lat,lastRef.current.lng)
       if (parseFloat(d) < 50) return
@@ -105,7 +245,201 @@ function useGPS() {
     return () => navigator.geolocation.clearWatch(id)
   }, [fetchNearby])
 
-  return {coords,address,accuracy,error,loading,nearby,loadingNearby}
+  const [destination, setDestination] = useState<NearbyPlace|null>(null)
+  const [searchQuery, setSearchQuery] = useState<string>("")
+
+  const searchNearbyByQuery = useCallback(async (query: string, lat: number, lng: number) => {
+    if (!query) return
+    setSearchQuery(query)
+    setLoadingNearby(true)
+    activeSearchRef.current = true
+
+    try {
+      // ── 1. Parse query ───────────────────────────────────────────────────────
+      const cleanQ = query.toLowerCase().trim()
+        .replace(/^(arahkan ke|navigasi ke|cari|pergi ke|tuju|ke|tunjukkan|bawa ke|mau ke|cariin|find|go to|navigate to|search)\s+/i, "")
+        .replace(/\s+(terdekat|deket|dekat|nearby|sekitar sini|di sini|sini|near me|closest)$/i, "")
+        .trim()
+
+      const CATEGORY_MAP: Array<[RegExp, string]> = [
+        [/^(cafe|kopi|coffee|kedai kopi|warung kopi|kafe)$/,      '[amenity~"cafe|coffee_shop"]'],
+        [/^(restoran|restaurant|makan|warung|rumah makan|food)$/,  '[amenity~"restaurant|fast_food|food_court|cafe"]'],
+        [/^(masjid|mosque|mushola|surau|mesjid)$/,                '[amenity=place_of_worship][religion=muslim]'],
+        [/^(gereja|church|kapel)$/,                               '[amenity=place_of_worship][religion=christian]'],
+        [/^(pura|temple|vihara)$/,                                '[amenity=place_of_worship]'],
+        [/^(rumah sakit|rs|hospital|klinik|rsud|rsu|rsia)$/,      '[amenity~"hospital|clinic"]'],
+        [/^(apotek|apotik|pharmacy|farmasi)$/,                    '[amenity=pharmacy]'],
+        [/^(puskesmas)$/,                                         '[amenity~"clinic|health"]'],
+        [/^(spbu|pom bensin|bensin|bbm|pertamina|fuel|gas)$/,     '[amenity=fuel]'],
+        [/^(bank)$/,                                              '[amenity=bank]'],
+        [/^(atm)$/,                                               '[amenity=atm]'],
+        [/^(hotel|penginapan|hostel|resort|villa|inn)$/,          '[tourism~"hotel|hostel|guest_house"]'],
+        [/^(mall|plaza|pusat perbelanjaan)$/,                     '[shop~"mall|supermarket|department_store"]'],
+        [/^(supermarket|hypermarket)$/,                           '[shop~"supermarket|hypermarket"]'],
+        [/^(minimarket|alfamart|indomaret)$/,                     '[shop~"convenience|supermarket"]'],
+        [/^(taman|park|alun.?alun)$/,                             '[leisure~"park|garden"]'],
+        [/^(sekolah|sd|smp|sma|smk|school)$/,                    '[amenity~"school"]'],
+        [/^(universitas|kampus|univ|university|college)$/,        '[amenity~"university|college"]'],
+        [/^(polisi|kantor polisi|police)$/,                       '[amenity=police]'],
+        [/^(kantor pos|post office)$/,                            '[amenity=post_office]'],
+        [/^(bandara|airport)$/,                                   '[aeroway=terminal]'],
+        [/^(terminal|terminal bus|bus station)$/,                 '[amenity~"bus_station|bus_stop"]'],
+        [/^(stasiun|train station|kereta)$/,                      '[railway~"station|halt"]'],
+        [/^(parkir|parking)$/,                                    '[amenity=parking]'],
+        [/^(gym|fitness|olahraga)$/,                              '[leisure~"fitness_centre|sports_centre"]'],
+        [/^(salon|barbershop|pangkas)$/,                          '[shop~"hairdresser|beauty"]'],
+        [/^(pasar|market)$/,                                      '[amenity~"marketplace|market"]'],
+      ]
+
+      let osmFilter = ""
+      for (const [pattern, filter] of CATEGORY_MAP) {
+        if (pattern.test(cleanQ)) { osmFilter = filter; break }
+      }
+      const specificName = osmFilter ? "" : (cleanQ || query)
+
+      // ── 2. Reverse geocode untuk dapat country_code ─────────────────────────
+      let userCountryCode = "id"
+      try {
+        const rg = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=10`,
+          { signal: AbortSignal.timeout(5000) }
+        )
+        const rgd = await rg.json()
+        userCountryCode = rgd.address?.country_code || "id"
+      } catch {}
+
+      // ── 3. Overpass — pakai node saja (cepat, tidak timeout) ────────────────
+      const overpassSearch = async (radiusM: number): Promise<NearbyPlace[]> => {
+        if (!osmFilter) return []
+        // node saja — jauh lebih ringan dari node+way
+        const oq = `[out:json][timeout:8];(node(around:${radiusM},${lat},${lng})${osmFilter}[name];);out body 15;`
+        const ctrl = new AbortController()
+        const timer = setTimeout(() => ctrl.abort(), 7000)
+        try {
+          const res  = await fetch(
+            `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(oq)}`,
+            { signal: ctrl.signal }
+          )
+          if (!res.ok) return []
+          const data = await res.json()
+          return (data.elements ?? [])
+            .filter((e: any) => e.tags?.name && e.lat && e.lon)
+            .map((e: any) => ({
+              name:     e.tags.name,
+              dist:     calcDist(lat, lng, e.lat, e.lon),
+              category: e.tags.amenity || e.tags.tourism || e.tags.leisure || e.tags.shop || "tempat",
+              lat:      e.lat,
+              lng:      e.lon,
+            }))
+            .sort((a: NearbyPlace, b: NearbyPlace) => {
+              const m = (d: string) => d.endsWith("km") ? parseFloat(d)*1000 : parseFloat(d)
+              return m(a.dist) - m(b.dist)
+            })
+            .slice(0, 8)
+        } catch { return [] }
+        finally { clearTimeout(timer) }
+      }
+
+      // ── 4. Nominatim dengan viewbox (kotak area sekitar GPS) ────────────────
+      // viewbox memaksa hasil berada di dalam kotak koordinat — jauh lebih presisi
+      const nominatimSearch = async (boxKm: number | null, countryOnly = false): Promise<NearbyPlace[]> => {
+        const term = specificName || cleanQ || query
+        const params = new URLSearchParams({
+          q: term,
+          format: "json",
+          limit: "10",
+          addressdetails: "1",
+          "accept-language": "id,en",
+          countrycodes: userCountryCode,
+        })
+
+        if (boxKm !== null) {
+          // viewbox = [minLon, minLat, maxLon, maxLat]
+          // 1 derajat lat ≈ 111km, 1 derajat lon ≈ 111km * cos(lat)
+          const dLat = boxKm / 111
+          const dLon = boxKm / (111 * Math.cos(lat * Math.PI / 180))
+          const viewbox = `${lng-dLon},${lat-dLat},${lng+dLon},${lat+dLat}`
+          params.set("viewbox", viewbox)
+          params.set("bounded", "1") // WAJIB: hasil harus di dalam viewbox
+        }
+
+        if (countryOnly) {
+          params.delete("bounded")   // kalau country, jangan bounded
+        }
+
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?${params}`,
+          { signal: AbortSignal.timeout(8000) }
+        )
+        const data: any[] = await res.json()
+        return data
+          .filter(e => e.lat && e.lon)
+          .map(e => ({
+            name:     e.display_name.split(",").slice(0, 2).join(", "),
+            dist:     calcDist(lat, lng, parseFloat(e.lat), parseFloat(e.lon)),
+            category: e.type || e.class || "tempat",
+            lat:      parseFloat(e.lat),
+            lng:      parseFloat(e.lon),
+          }))
+          .sort((a: NearbyPlace, b: NearbyPlace) => {
+            const m = (d: string) => d.endsWith("km") ? parseFloat(d)*1000 : parseFloat(d)
+            return m(a.dist) - m(b.dist)
+          })
+          .slice(0, 8)
+      }
+
+      // ── 5. Pipeline ──────────────────────────────────────────────────────────
+      // Kategori generik: Overpass radius kecil → besar → Nominatim viewbox kota → kota besar
+      // Nama spesifik:    Nominatim viewbox kecil → sedang → se-negara → global
+      const PIPELINE = osmFilter
+        ? [
+            { label: `${query} (2km)`,   fn: () => overpassSearch(2_000)              },
+            { label: `${query} (5km)`,   fn: () => overpassSearch(5_000)              },
+            { label: `${query} (10km)`,  fn: () => overpassSearch(10_000)             },
+            { label: `${query} (25km)`,  fn: () => overpassSearch(25_000)             },
+            { label: `${query} (kota)`,  fn: () => nominatimSearch(30, false)         },
+            { label: `${query} (negara)`,fn: () => nominatimSearch(null, true)        },
+          ]
+        : [
+            { label: `${query} (10km)`,  fn: () => nominatimSearch(10, false)         },
+            { label: `${query} (30km)`,  fn: () => nominatimSearch(30, false)         },
+            { label: `${query} (100km)`, fn: () => nominatimSearch(100, false)        },
+            { label: `${query} (negara)`,fn: () => nominatimSearch(null, true)        },
+            { label: `${query} (global)`,fn: () => nominatimSearch(null, false)       },
+          ]
+
+      let results: NearbyPlace[] = []
+      for (const step of PIPELINE) {
+        setSearchQuery(step.label)
+        try {
+          results = await step.fn()
+          if (results.length > 0) break
+        } catch { continue }
+      }
+
+      // ── 6. Set hasil ─────────────────────────────────────────────────────────
+      setSearchQuery(query)
+      setNearby(results)
+      if (results.length > 0) {
+        if (specificName) {
+          const nl = specificName.toLowerCase().split(" ")[0]
+          const best = results.find(r => r.name.toLowerCase().includes(nl)) ?? results[0]
+          setDestination(best)
+        } else {
+          setDestination(results[0])
+        }
+      } else {
+        setDestination(null)
+        activeSearchRef.current = false
+        setSearchQuery(`"${query}" tidak ditemukan`)
+      }
+
+    } catch { setNearby([]); setDestination(null); activeSearchRef.current = false }
+    finally { setLoadingNearby(false) }
+  }, [])
+
+
+  return {coords,address,accuracy,error,loading,nearby,loadingNearby,destination,setDestination,searchQuery,setSearchQuery,searchNearbyByQuery,activeSearchRef}
 }
 
 // ── REAL NOTIFS HOOK ──────────────────────────────────────────────────────────
@@ -388,14 +722,14 @@ function TranslatePanel({accent,accentDim,accentFaint,targetLang}:{
     canvas.height = videoRef.current.videoHeight || 720
     ctx.drawImage(videoRef.current, 0, 0)
 
-    // Untuk Arab/China/Korea/Jepang → pakai Claude Vision (jauh lebih akurat)
+    // Untuk Arab/China/Korea/Jepang → pakai AI Vision (jauh lebih akurat)
     const useVision = ["ar","zh","ja","ko"].includes(srcLang) ||
       (srcLang === "auto") // auto juga pakai vision supaya lebih akurat
 
     if (useVision) {
       // Preprocessing ringan saja (tidak perlu grayscale untuk Vision API)
       const base64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1]
-      setStatus(targetLang==="en" ? "Sending to Claude Vision..." : "Mengirim ke Claude Vision...")
+      setStatus(targetLang==="en" ? "Sending to AI Vision..." : "Mengirim ke AI Vision...")
 
       try {
         const to = dstLang
@@ -805,300 +1139,348 @@ function AIPanel({accent,accentDim,accentFaint,lang}:{accent:string;accentDim:st
   )
 }
 
-// ── DETECT PANEL — YOLOv8 ─────────────────────────────────────────────────────
-function DetectPanel({accent,accentDim,accentFaint,lang}:{accent:string;accentDim:string;accentFaint:string;lang:string}) {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [cameraOn, setCameraOn] = useState(false)
-  const [modelLoaded, setModelLoaded] = useState(false)
-  const [detecting, setDetecting] = useState(false)
-  const [objects, setObjects] = useState<DetectedObject[]>([])
-  const [status, setStatus] = useState("")
-  const streamRef = useRef<MediaStream|null>(null)
-  const modelRef = useRef<any>(null)
-  const rafRef = useRef<number>(0)
+// ── DETECT PANEL — AI Vision ────────────────────────────────────────────
+interface DetectedObject { label: string; score: number; bbox: [number,number,number,number] }
 
-  // 80 label COCO (sama untuk YOLOv8 dan COCO-SSD)
+function DetectPanel({accent,accentDim,accentFaint,lang}:{accent:string;accentDim:string;accentFaint:string;lang:string}) {
+  const videoRef   = useRef<HTMLVideoElement>(null)
+  const canvasRef  = useRef<HTMLCanvasElement>(null)
+  const overlayRef = useRef<HTMLCanvasElement>(null)
+  const streamRef  = useRef<MediaStream|null>(null)
+  const timerRef   = useRef<ReturnType<typeof setInterval>|null>(null)
+
+  const [cameraOn,  setCameraOn]  = useState(false)
+  const [detecting, setDetecting] = useState(false)
+  const [objects,   setObjects]   = useState<DetectedObject[]>([])
+  const [status,    setStatus]    = useState("")
+  const [autoMode,  setAutoMode]  = useState(false)
+  const [lastScan,  setLastScan]  = useState<Date|null>(null)
+
+  // Warna per label
+  const labelColor: Record<string,string> = {
+    person:"#ff4444",car:"#ffaa00",motorcycle:"#ffaa00",bus:"#ffaa00",truck:"#ffaa00",
+    bicycle:"#44ff88","cell phone":"#44aaff",laptop:"#44aaff",tv:"#44aaff",
+    dog:"#ff88ff",cat:"#ff88ff",knife:"#ff2222",scissors:"#ff2222",
+  }
+  const getColor = (lbl: string) => labelColor[lbl.toLowerCase()] || accent
+
   const labelID: Record<string,string> = {
     person:"Orang",bicycle:"Sepeda",car:"Mobil",motorcycle:"Motor",airplane:"Pesawat",
     bus:"Bus",train:"Kereta",truck:"Truk",boat:"Perahu",chair:"Kursi",
     "dining table":"Meja Makan",laptop:"Laptop",keyboard:"Keyboard",mouse:"Mouse",
-    "cell phone":"HP",book:"Buku",bottle:"Botol",cup:"Cangkir",fork:"Garpu",
+    "cell phone":"HP",book:"Buku",bottle:"Botol",cup:"Cangkir",
     knife:"Pisau",spoon:"Sendok",bowl:"Mangkuk",banana:"Pisang",apple:"Apel",
-    backpack:"Ransel",umbrella:"Payung",handbag:"Tas",tie:"Dasi",suitcase:"Koper",
-    dog:"Anjing",cat:"Kucing",bird:"Burung",horse:"Kuda",cow:"Sapi",
-    "traffic light":"Lampu Merah","stop sign":"Rambu Stop",bench:"Bangku",
-    tv:"TV",clock:"Jam",vase:"Vas",scissors:"Gunting","teddy bear":"Boneka",
-    elephant:"Gajah",bear:"Beruang",zebra:"Zebra",giraffe:"Jerapah",
-    skateboard:"Skateboard",surfboard:"Surfboard","tennis racket":"Raket Tenis",
-    pizza:"Pizza",donut:"Donat",cake:"Kue",orange:"Jeruk",broccoli:"Brokoli",
-    carrot:"Wortel","hot dog":"Hotdog",sandwich:"Sandwich",
+    backpack:"Ransel",umbrella:"Payung",handbag:"Tas",dog:"Anjing",cat:"Kucing",
+    bird:"Burung",horse:"Kuda",cow:"Sapi","traffic light":"Lampu Merah",
+    "stop sign":"Rambu Stop",bench:"Bangku",clock:"Jam",scissors:"Gunting",
     "potted plant":"Tanaman Pot",bed:"Kasur",toilet:"Toilet",
-    "wine glass":"Gelas Wine","sports ball":"Bola",kite:"Layang-layang",
-    "baseball bat":"Tongkat Baseball","baseball glove":"Sarung Tangan Baseball",frisbee:"Frisbee",skis:"Ski",snowboard:"Snowboard",
-  }
-
-  // Warna per kelas untuk bounding box lebih informatif
-  const classColor: Record<string,string> = {
-    person:"#ff4444",car:"#ffaa00",motorcycle:"#ffaa00",bus:"#ffaa00",truck:"#ffaa00",
-    bicycle:"#44ff88","cell phone":"#44aaff",laptop:"#44aaff",tv:"#44aaff",
-    dog:"#ff88ff",cat:"#ff88ff",bird:"#ff88ff",
-  }
-  const getBboxColor = (label: string) => classColor[label] || accent
-
-  const loadScript = (src: string): Promise<void> => new Promise((resolve,reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) { resolve(); return }
-    const s=document.createElement("script"); s.src=src; s.onload=()=>resolve(); s.onerror=reject
-    document.head.appendChild(s)
-  })
-
-  const loadModel = async () => {
-    if (modelRef.current) { setModelLoaded(true); startDetect(); return }
-    try {
-      // Step 1: Load TensorFlow.js
-      setStatus(lang==="en"?"Loading TensorFlow.js...":"Memuat TensorFlow.js...")
-      await loadScript("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js")
-
-      // Step 2: Load YOLOv8 via transformers.js (lebih akurat dari COCO-SSD)
-      // Fallback ke COCO-SSD jika YOLOv8 gagal
-      setStatus(lang==="en"?"Loading YOLOv8 model (~15MB)...":"Memuat model YOLOv8 (~15MB)...")
-
-      try {
-        // Coba load ONNX runtime + YOLOv8
-        await loadScript("https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort.min.js")
-        const ort = (window as any).ort
-        if (!ort) throw new Error("ORT not loaded")
-
-        // Load YOLOv8n ONNX model (nano — cepat & ringan)
-        const session = await ort.InferenceSession.create(
-          "https://huggingface.co/Xenova/yolov8n/resolve/main/onnx/model.onnx",
-          { executionProviders: ["wasm"] }
-        )
-
-        // Bungkus session dalam interface yang mirip COCO-SSD
-        modelRef.current = {
-          type: "yolov8",
-          session,
-          detect: async (video: HTMLVideoElement) => {
-            return await runYOLOv8(session, video)
-          }
-        }
-        setStatus(lang==="en"?"YOLOv8 ready ✓":"YOLOv8 siap ✓")
-
-      } catch (yoloErr) {
-        // Fallback ke COCO-SSD jika YOLOv8 gagal load
-        console.warn("YOLOv8 failed, falling back to COCO-SSD:", yoloErr)
-        setStatus(lang==="en"?"YOLOv8 unavailable, loading COCO-SSD...":"YOLOv8 gagal, beralih ke COCO-SSD...")
-        await loadScript("https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js")
-        const cocoSsd = (window as any).cocoSsd
-        const model = await cocoSsd.load({ base: "mobilenet_v2" }) // mobilenet_v2 lebih akurat
-        modelRef.current = {
-          type: "cocossd",
-          detect: async (video: HTMLVideoElement) => {
-            const preds = await model.detect(video, 20, 0.35) // maxDetections=20, minScore=0.35
-            return preds.map((p:any) => ({
-              class: p.class, score: p.score, bbox: p.bbox
-            }))
-          }
-        }
-        setStatus(lang==="en"?"COCO-SSD ready (mobilenet_v2) ✓":"COCO-SSD siap (mobilenet_v2) ✓")
-      }
-
-      setModelLoaded(true)
-      startDetect()
-    } catch (e) {
-      setStatus(lang==="en"?"⚠ Failed to load model":"⚠ Gagal memuat model")
-    }
-  }
-
-  // YOLOv8 inference helper
-  const runYOLOv8 = async (session: any, video: HTMLVideoElement) => {
-    const ort = (window as any).ort
-    const inputSize = 640
-
-    // Preprocess: resize + normalize ke [0,1]
-    const offscreen = document.createElement("canvas")
-    offscreen.width = inputSize; offscreen.height = inputSize
-    const ctx = offscreen.getContext("2d")!
-    ctx.drawImage(video, 0, 0, inputSize, inputSize)
-    const imageData = ctx.getImageData(0, 0, inputSize, inputSize)
-    const {data} = imageData
-
-    // RGB float32 tensor [1, 3, 640, 640]
-    const float32 = new Float32Array(1 * 3 * inputSize * inputSize)
-    for (let i = 0; i < inputSize * inputSize; i++) {
-      float32[i]                         = data[i*4]   / 255.0 // R
-      float32[i + inputSize*inputSize]   = data[i*4+1] / 255.0 // G
-      float32[i + 2*inputSize*inputSize] = data[i*4+2] / 255.0 // B
-    }
-
-    const tensor = new ort.Tensor("float32", float32, [1, 3, inputSize, inputSize])
-    const feeds: Record<string,any> = {}
-    feeds[session.inputNames[0]] = tensor
-
-    const results = await session.run(feeds)
-    const output = results[session.outputNames[0]].data // [1, 84, 8400]
-
-    // Parse YOLOv8 output
-    const numBoxes = 8400
-    const numClasses = 80
-    const COCO_CLASSES = [
-      "person","bicycle","car","motorcycle","airplane","bus","train","truck","boat",
-      "traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat",
-      "dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack",
-      "umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball",
-      "kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket",
-      "bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple",
-      "sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair",
-      "couch","potted plant","bed","dining table","toilet","tv","laptop","mouse",
-      "remote","keyboard","cell phone","microwave","oven","toaster","sink",
-      "refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"
-    ]
-
-    const detections: any[] = []
-    const scaleX = video.videoWidth / inputSize
-    const scaleY = video.videoHeight / inputSize
-
-    for (let i = 0; i < numBoxes; i++) {
-      // Find best class score
-      let maxScore = 0; let maxClass = 0
-      for (let c = 0; c < numClasses; c++) {
-        const score = output[numBoxes * (4 + c) + i]
-        if (score > maxScore) { maxScore = score; maxClass = c }
-      }
-      if (maxScore < 0.4) continue // threshold
-
-      // cx, cy, w, h (normalized)
-      const cx = output[i] * scaleX
-      const cy = output[numBoxes + i] * scaleY
-      const w  = output[numBoxes*2 + i] * scaleX
-      const h  = output[numBoxes*3 + i] * scaleY
-
-      detections.push({
-        class: COCO_CLASSES[maxClass] || `class_${maxClass}`,
-        score: maxScore,
-        bbox: [cx - w/2, cy - h/2, w, h] as [number,number,number,number]
-      })
-    }
-
-    // NMS sederhana — hapus box yang overlap
-    detections.sort((a,b) => b.score - a.score)
-    const kept: any[] = []
-    for (const det of detections) {
-      const overlap = kept.some(k => {
-        const iou = calcIoU(det.bbox, k.bbox)
-        return iou > 0.5
-      })
-      if (!overlap) kept.push(det)
-      if (kept.length >= 20) break
-    }
-    return kept
-  }
-
-  // IoU untuk NMS
-  const calcIoU = (b1: number[], b2: number[]) => {
-    const x1=Math.max(b1[0],b2[0]), y1=Math.max(b1[1],b2[1])
-    const x2=Math.min(b1[0]+b1[2],b2[0]+b2[2]), y2=Math.min(b1[1]+b1[3],b2[1]+b2[3])
-    const inter=Math.max(0,x2-x1)*Math.max(0,y2-y1)
-    const union=b1[2]*b1[3]+b2[2]*b2[3]-inter
-    return union>0?inter/union:0
+    "sports ball":"Bola","fire hydrant":"Hidran",refrigerator:"Kulkas",
+    microwave:"Microwave",sink:"Wastafel",vase:"Vas","teddy bear":"Boneka",
   }
 
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:640},height:{ideal:480}}})
-      streamRef.current=stream
-      if (videoRef.current) { videoRef.current.srcObject=stream; videoRef.current.play() }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video:{facingMode:"environment",width:{ideal:1280},height:{ideal:720}}
+      })
+      streamRef.current = stream
+      if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play() }
       setCameraOn(true)
-      setStatus(lang==="en"?"Camera on. Loading YOLOv8...":"Kamera aktif. Memuat YOLOv8...")
-      await loadModel()
+      setStatus(lang==="en"?"Camera ready. Press SCAN or enable Auto.":"Kamera siap. Tekan SCAN atau aktifkan Auto.")
     } catch { setStatus("⚠ "+(lang==="en"?"Camera denied":"Akses kamera ditolak")) }
   }
 
-  const startDetect = () => {
-    setDetecting(true)
-    const detect = async () => {
-      if (!videoRef.current||!canvasRef.current||!modelRef.current) return
-      if (videoRef.current.readyState < 2) { rafRef.current=requestAnimationFrame(detect); return }
-      try {
-        const predictions = await modelRef.current.detect(videoRef.current)
-        setObjects(predictions.map((p:any)=>({
-          label: p.class,
-          score: Math.round(p.score*100),
-          bbox: p.bbox as [number,number,number,number]
-        })))
-
-        // Draw bounding boxes dengan warna per kelas
-        const canvas=canvasRef.current; const ctx=canvas.getContext("2d")!
-        canvas.width=videoRef.current.videoWidth; canvas.height=videoRef.current.videoHeight
-        ctx.clearRect(0,0,canvas.width,canvas.height)
-
-        predictions.forEach((p:any) => {
-          const [x,y,w,h]=p.bbox
-          const color=getBboxColor(p.class)
-          const lbl=lang==="en"?p.class:(labelID[p.class]||p.class)
-          const pct=Math.round(p.score*100)
-
-          // Box
-          ctx.strokeStyle=color; ctx.lineWidth=2; ctx.strokeRect(x,y,w,h)
-          // Background label
-          ctx.fillStyle=`${color}cc`
-          const txtW=ctx.measureText(`${lbl} ${pct}%`).width+8
-          ctx.fillRect(x, y>18?y-18:y, txtW, 16)
-          // Label text
-          ctx.fillStyle="#000"; ctx.font="bold 11px monospace"
-          ctx.fillText(`${lbl} ${pct}%`, x+4, y>18?y-5:y+12)
-        })
-      } catch {}
-      rafRef.current=requestAnimationFrame(detect)
-    }
-    rafRef.current=requestAnimationFrame(detect)
-  }
-
   const stopCamera = () => {
-    cancelAnimationFrame(rafRef.current)
-    streamRef.current?.getTracks().forEach(t=>t.stop())
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    streamRef.current?.getTracks().forEach(t => t.stop())
     setCameraOn(false); setDetecting(false); setObjects([])
-    if (canvasRef.current) { canvasRef.current.getContext("2d")?.clearRect(0,0,canvasRef.current.width,canvasRef.current.height) }
-    setStatus("")
+    setAutoMode(false); setStatus("")
+    // Clear overlay
+    if (overlayRef.current) {
+      overlayRef.current.getContext("2d")?.clearRect(0,0,overlayRef.current.width,overlayRef.current.height)
+    }
   }
 
-  useEffect(()=>()=>{ cancelAnimationFrame(rafRef.current); streamRef.current?.getTracks().forEach(t=>t.stop()) },[])
+  // Capture frame → AI Vision → parse objects
+  const scanFrame = async () => {
+    if (!videoRef.current || !canvasRef.current || detecting) return
+    setDetecting(true)
+    setStatus(lang==="en"?"Scanning...":"Memindai...")
+
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext("2d")!
+    canvas.width  = videoRef.current.videoWidth  || 640
+    canvas.height = videoRef.current.videoHeight || 480
+    ctx.drawImage(videoRef.current, 0, 0)
+    const base64 = canvas.toDataURL("image/jpeg", 0.7).split(",")[1]
+
+    try {
+      const prompt = lang === "en"
+        ? `You are an object detection AI for V-Optics smart glasses. Analyze this camera image and detect ALL visible objects.
+
+Return ONLY a JSON array like this (no markdown, no explanation):
+[
+  {"label":"person","confidence":95,"x":120,"y":80,"w":200,"h":350},
+  {"label":"car","confidence":87,"x":400,"y":200,"w":180,"h":120}
+]
+
+Rules:
+- label: English name (lowercase), use COCO dataset labels when possible
+- confidence: 0-100 integer
+- x,y,w,h: bounding box in pixels relative to the image dimensions (${canvas.width}x${canvas.height})
+- Include ALL objects you can see with confidence > 40
+- Be precise with bounding box coordinates
+- If no objects detected, return []`
+        : `Kamu adalah AI deteksi objek untuk kacamata pintar V-Optics. Analisis gambar kamera ini dan deteksi SEMUA objek yang terlihat.
+
+Balas HANYA array JSON seperti ini (tanpa markdown, tanpa penjelasan):
+[
+  {"label":"person","confidence":95,"x":120,"y":80,"w":200,"h":350},
+  {"label":"car","confidence":87,"x":400,"y":200,"w":180,"h":120}
+]
+
+Aturan:
+- label: nama dalam bahasa Inggris (huruf kecil), gunakan label dataset COCO jika memungkinkan  
+- confidence: integer 0-100
+- x,y,w,h: bounding box dalam piksel relatif terhadap dimensi gambar (${canvas.width}x${canvas.height})
+- Sertakan SEMUA objek yang terlihat dengan confidence > 40
+- Jika tidak ada objek, kembalikan []`
+
+      const res = await fetch("/api/claude-vision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: base64, prompt, mode: "detect" })
+      })
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const raw = (data.result ?? "").replace(/```json|```/g, "").trim()
+
+      // Parse array JSON
+      const parsed: any[] = JSON.parse(raw.startsWith("[") ? raw : raw.slice(raw.indexOf("[")))
+      const detected: DetectedObject[] = parsed
+        .filter(o => o.confidence >= 40)
+        .sort((a,b) => b.confidence - a.confidence)
+        .slice(0, 15)
+        .map(o => ({
+          label: String(o.label).toLowerCase(),
+          score: Math.min(100, Math.max(0, Number(o.confidence))),
+          bbox: [Number(o.x), Number(o.y), Number(o.w), Number(o.h)] as [number,number,number,number]
+        }))
+
+      setObjects(detected)
+      setLastScan(new Date())
+      setStatus(lang==="en"
+        ? `✓ ${detected.length} object${detected.length!==1?"s":""} detected`
+        : `✓ ${detected.length} objek terdeteksi`)
+
+      // Draw bounding boxes
+      drawBoxes(detected)
+
+    } catch (e: any) {
+      const msg = e?.message ?? ""
+      if (msg.includes("JSON")) {
+        setStatus(lang==="en"?"No objects detected":"Tidak ada objek terdeteksi")
+        setObjects([])
+        if (overlayRef.current) overlayRef.current.getContext("2d")?.clearRect(0,0,overlayRef.current.width,overlayRef.current.height)
+      } else {
+        setStatus("⚠ " + (lang==="en"?"API error — check route":"Error API — cek route"))
+      }
+    }
+    setDetecting(false)
+  }
+
+  // Draw bounding boxes ke overlay canvas
+  const drawBoxes = (objs: DetectedObject[]) => {
+    if (!overlayRef.current || !videoRef.current) return
+    const ov = overlayRef.current
+    const ctx = ov.getContext("2d")!
+    ov.width  = videoRef.current.videoWidth  || 640
+    ov.height = videoRef.current.videoHeight || 480
+    ctx.clearRect(0, 0, ov.width, ov.height)
+
+    objs.forEach(obj => {
+      const [x,y,w,h] = obj.bbox
+      const color = getColor(obj.label)
+      const lbl = lang==="en" ? obj.label : (labelID[obj.label] || obj.label)
+
+      // Box
+      ctx.strokeStyle = color; ctx.lineWidth = 2.5
+      ctx.strokeRect(x, y, w, h)
+
+      // Corner accents
+      const cs = 10
+      ctx.strokeStyle = color; ctx.lineWidth = 3
+      ;[[x,y],[x+w,y],[x,y+h],[x+w,y+h]].forEach(([cx,cy],i) => {
+        ctx.beginPath()
+        ctx.moveTo(cx + (i%2===0?cs:-cs), cy)
+        ctx.lineTo(cx, cy)
+        ctx.lineTo(cx, cy + (i<2?cs:-cs))
+        ctx.stroke()
+      })
+
+      // Label background
+      ctx.font = "bold 11px monospace"
+      const tw = ctx.measureText(`${lbl} ${obj.score}%`).width + 10
+      ctx.fillStyle = `${color}dd`
+      const labelY = y > 20 ? y - 18 : y + h + 2
+      ctx.fillRect(x, labelY, tw, 16)
+
+      // Label text
+      ctx.fillStyle = "#000"
+      ctx.fillText(`${lbl} ${obj.score}%`, x + 5, labelY + 12)
+    })
+  }
+
+  // Auto scan setiap 3 detik
+  useEffect(() => {
+    if (autoMode && cameraOn) {
+      timerRef.current = setInterval(() => scanFrame(), 3000)
+    } else {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current) }
+  }, [autoMode, cameraOn])
+
+  useEffect(() => () => {
+    if (timerRef.current) clearInterval(timerRef.current)
+    streamRef.current?.getTracks().forEach(t => t.stop())
+  }, [])
 
   return (
     <div style={{display:"flex",gap:10,height:"100%"}}>
+      {/* ── Video + overlay ── */}
       <div style={{flex:1.4,position:"relative",border:`1px solid ${accentDim}`,borderRadius:6,overflow:"hidden",background:"#000"}}>
-        <video ref={videoRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",display:cameraOn?"block":"none"}} muted playsInline/>
-        <canvas ref={canvasRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",display:cameraOn?"block":"none"}}/>
-        {([[0,0],[1,0],[0,1],[1,1]] as const).map(([x,y],i)=>(<div key={i} style={{position:"absolute",width:14,height:14,zIndex:2,top:y?"auto":6,bottom:y?6:"auto",left:x?"auto":6,right:x?6:"auto",borderTop:!y?`2px solid ${accent}`:"none",borderBottom:y?`2px solid ${accent}`:"none",borderLeft:!x?`2px solid ${accent}`:"none",borderRight:x?`2px solid ${accent}`:"none"}}/>))}
-        {!cameraOn&&(<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}><span style={{fontSize:22,color:accentDim}}>⬢</span><button onClick={startCamera} style={{padding:"7px 18px",fontFamily:"'Orbitron',monospace",fontSize:9,letterSpacing:2,background:accentFaint,border:`1px solid ${accentDim}`,color:accent,borderRadius:4,cursor:"pointer"}}>{lang==="en"?"START DETECTION":"MULAI DETEKSI"}</button></div>)}
-        {cameraOn&&!modelLoaded&&(<div style={{position:"absolute",bottom:6,left:0,right:0,textAlign:"center",zIndex:3}}><div style={{color:accent,fontSize:8,letterSpacing:1}}><span style={{display:"inline-block",animation:"spin 1s linear infinite",marginRight:4}}>↻</span>{lang==="en"?"Loading YOLOv8...":"Memuat YOLOv8..."}</div></div>)}
-        {cameraOn&&(<button onClick={stopCamera} style={{position:"absolute",bottom:6,right:6,zIndex:3,padding:"3px 8px",fontFamily:"'Share Tech Mono',monospace",fontSize:8,background:"rgba(255,60,60,0.15)",border:"1px solid rgba(255,60,60,0.4)",color:"#f88",borderRadius:3,cursor:"pointer",letterSpacing:1}}>STOP</button>)}
+        <video ref={videoRef} muted playsInline
+          style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",display:cameraOn?"block":"none"}}/>
+        <canvas ref={canvasRef} style={{display:"none"}}/>
+        <canvas ref={overlayRef}
+          style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",
+            display:cameraOn?"block":"none",pointerEvents:"none"}}/>
+
+        {/* Corner brackets */}
+        {([[0,0],[1,0],[0,1],[1,1]] as const).map(([x,y],i) => (
+          <div key={i} style={{position:"absolute",width:14,height:14,zIndex:2,
+            top:y?"auto":6,bottom:y?6:"auto",left:x?"auto":6,right:x?6:"auto",
+            borderTop:!y?`2px solid ${accent}`:"none",borderBottom:y?`2px solid ${accent}`:"none",
+            borderLeft:!x?`2px solid ${accent}`:"none",borderRight:x?`2px solid ${accent}`:"none"}}/>
+        ))}
+
+        {/* Scan animation */}
+        {detecting && (
+          <div style={{position:"absolute",left:0,right:0,top:0,height:"100%",zIndex:3,
+            background:`linear-gradient(180deg,transparent 0%,${accent}15 49%,${accent}25 50%,${accent}15 51%,transparent 100%)`,
+            animation:"scanBeam 1.2s ease-in-out infinite"}}/>
+        )}
+
+        {!cameraOn && (
+          <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}>
+            <span style={{fontSize:22,color:accentDim}}>⬢</span>
+            <button onClick={startCamera}
+              style={{padding:"7px 18px",fontFamily:"monospace",fontSize:9,letterSpacing:2,
+                background:accentFaint,border:`1px solid ${accentDim}`,color:accent,borderRadius:4,cursor:"pointer"}}>
+              {lang==="en"?"START DETECTION":"MULAI DETEKSI"}
+            </button>
+            <div style={{fontSize:8,color:accentDim,textAlign:"center",padding:"0 12px",lineHeight:1.6}}>
+              {lang==="en"?"Powered by V-Optics AI":"Didukung V-Optics AI"}
+            </div>
+          </div>
+        )}
+
+        {/* Auto mode indicator */}
+        {cameraOn && autoMode && (
+          <div style={{position:"absolute",top:6,left:6,zIndex:4,
+            padding:"2px 7px",background:`${accent}22`,border:`1px solid ${accent}`,
+            borderRadius:3,fontSize:7,color:accent,letterSpacing:1,
+            animation:"pulse 1s infinite"}}>
+            ● AUTO {lang==="en"?"3s":"3d"}
+          </div>
+        )}
+
         {/* Model badge */}
-        {modelLoaded&&(<div style={{position:"absolute",top:6,left:6,zIndex:3,padding:"2px 6px",background:"rgba(0,0,0,0.6)",border:`1px solid ${accentDim}`,borderRadius:3,fontSize:7,color:accent,letterSpacing:1}}>{modelRef.current?.type==="yolov8"?"YOLOv8n":"COCO-SSD v2"}</div>)}
+        <div style={{position:"absolute",top:6,right:6,zIndex:4,
+          padding:"2px 7px",background:"rgba(0,0,0,0.7)",border:`1px solid ${accentDim}`,
+          borderRadius:3,fontSize:7,color:accentDim,letterSpacing:1}}>
+          AI Vision
+        </div>
+
+        {cameraOn && (
+          <button onClick={stopCamera}
+            style={{position:"absolute",bottom:6,right:6,zIndex:4,
+              padding:"3px 8px",fontFamily:"monospace",fontSize:8,
+              background:"rgba(255,60,60,0.15)",border:"1px solid rgba(255,60,60,0.4)",
+              color:"#f88",borderRadius:3,cursor:"pointer",letterSpacing:1}}>
+            STOP
+          </button>
+        )}
       </div>
 
-      <div style={{flex:1,display:"flex",flexDirection:"column",gap:5,overflowY:"auto"}}>
-        <div style={{fontSize:9,color:accentDim,letterSpacing:2,marginBottom:2}}>
-          {lang==="en"?"DETECTED OBJECTS":"OBJEK TERDETEKSI"}
-          {objects.length>0&&` (${objects.length})`}
-          {detecting&&modelLoaded&&<span style={{color:accent,marginLeft:6,animation:"pulse 1s infinite"}}>● LIVE</span>}
+      {/* ── Panel kanan ── */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",gap:6,overflowY:"auto"}}>
+        {/* Controls */}
+        {cameraOn && (
+          <div style={{display:"flex",gap:5}}>
+            <button onClick={scanFrame} disabled={detecting}
+              style={{flex:2,padding:"6px",fontFamily:"monospace",fontSize:8,letterSpacing:1,
+                background:detecting?`${accent}11`:`${accent}18`,
+                border:`1px solid ${detecting?accentDim:accent}`,
+                color:detecting?accentDim:accent,borderRadius:4,cursor:detecting?"not-allowed":"pointer"}}>
+              {detecting?"⏳ SCANNING...":"◆ SCAN"}
+            </button>
+            <button onClick={()=>setAutoMode(v=>!v)}
+              style={{flex:1,padding:"6px",fontFamily:"monospace",fontSize:8,
+                background:autoMode?`${accent}25`:accentDim,
+                border:`1px solid ${autoMode?accent:accentDim}`,
+                color:autoMode?accent:"#89a",borderRadius:4,cursor:"pointer",letterSpacing:1}}>
+              {autoMode?"● AUTO":"AUTO"}
+            </button>
+          </div>
+        )}
+
+        {/* Status */}
+        {status && (
+          <div style={{fontSize:8,color:status.startsWith("✓")?"#0f8":status.startsWith("⚠")?"#f80":accentDim,
+            letterSpacing:0.5,lineHeight:1.5}}>
+            {status}
+            {lastScan && <span style={{marginLeft:6,color:`${accentDim}`}}>
+              {lastScan.toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}
+            </span>}
+          </div>
+        )}
+
+        {/* Header */}
+        <div style={{fontSize:9,color:accentDim,letterSpacing:2}}>
+          {lang==="en"?"DETECTED":"TERDETEKSI"}
+          {objects.length>0&&<span style={{color:accent,marginLeft:4}}>({objects.length})</span>}
         </div>
-        {status&&<div style={{fontSize:8,color:accentDim,letterSpacing:0.5,lineHeight:1.5}}>{status}</div>}
-        {objects.length===0&&cameraOn&&modelLoaded&&<div style={{color:accentDim,fontSize:9,textAlign:"center",marginTop:10}}>{lang==="en"?"No objects detected":"Tidak ada objek terdeteksi"}</div>}
-        {objects.map((obj,i)=>{
-          const lbl=lang==="en"?obj.label:(labelID[obj.label]||obj.label)
-          const color=getBboxColor(obj.label)
+
+        {/* Object list */}
+        {objects.length===0 && cameraOn && !detecting && (
+          <div style={{color:accentDim,fontSize:9,textAlign:"center",marginTop:8}}>
+            {lang==="en"?"Press SCAN to detect":"Tekan SCAN untuk deteksi"}
+          </div>
+        )}
+
+        {objects.map((obj, i) => {
+          const lbl = lang==="en" ? obj.label : (labelID[obj.label] || obj.label)
+          const color = getColor(obj.label)
           return (
-            <div key={`${obj.label}-${i}`} style={{padding:"7px 9px",border:`1px solid ${color}33`,borderRadius:5,background:`${color}08`,animation:"slideIn 0.2s ease",animationFillMode:"both"}}>
+            <div key={`${obj.label}-${i}`}
+              style={{padding:"7px 9px",border:`1px solid ${color}33`,borderRadius:5,
+                background:`${color}08`,animation:"slideIn 0.15s ease",animationFillMode:"both",
+                animationDelay:`${i*0.04}s`}}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                <span style={{color,fontSize:11,fontWeight:"bold"}}>{lbl}</span>
-                <span style={{color:`${color}99`,fontSize:9}}>{obj.score>90?"●●●":obj.score>70?"●●○":"●○○"}</span>
+                <span style={{color,fontSize:11,fontWeight:"bold",textTransform:"capitalize"}}>{lbl}</span>
+                <span style={{color:`${color}99`,fontSize:9}}>
+                  {obj.score>=90?"●●●":obj.score>=70?"●●○":"●○○"}
+                </span>
               </div>
               <div style={{height:2,background:`${color}22`,borderRadius:2}}>
-                <div style={{width:`${obj.score}%`,height:"100%",background:color,borderRadius:2,transition:"width 0.3s ease"}}/>
+                <div style={{width:`${obj.score}%`,height:"100%",background:color,borderRadius:2,transition:"width 0.3s"}}/>
               </div>
-              <div style={{color:`${color}77`,fontSize:8,marginTop:2}}>{lang==="en"?"Confidence":"Konfiden"}: {obj.score}%</div>
+              <div style={{color:`${color}77`,fontSize:8,marginTop:2}}>
+                {lang==="en"?"Confidence":"Konfiden"}: {obj.score}%
+              </div>
             </div>
           )
         })}
@@ -1106,7 +1488,6 @@ function DetectPanel({accent,accentDim,accentFaint,lang}:{accent:string;accentDi
     </div>
   )
 }
-
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, setActiveFeature: setActiveFeatureProp, voiceAction, onVoiceActionDone }: HUDSimulatorProps) {
   const [time, setTime] = useState(new Date())
@@ -1120,17 +1501,38 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
     setActiveFeatureProp?.(f)
   }
 
+  const {coords,address,accuracy,error:gpsError,loading:gpsLoading,nearby,loadingNearby,destination,setDestination,searchQuery,setSearchQuery,searchNearbyByQuery,activeSearchRef} = useGPS()
+  const notifs = useRealNotifs(coords)
+
+  // Pending search query dari voice — menunggu coords tersedia
+  const [pendingSearch, setPendingSearch] = useState<string|null>(null)
+
   // Eksekusi voiceAction saat berubah
   useEffect(() => {
     if (!voiceAction || voiceAction.type === "none") return
     if (voiceAction.type === "navigate") {
       setActiveFeature(voiceAction.feature)
+    } else if (voiceAction.type === "search_nearby") {
+      const query = (voiceAction as any).query ?? ""
+      setActiveFeature("nav")
+      if (coords) {
+        searchNearbyByQuery(query, coords.lat, coords.lng)
+      } else {
+        setPendingSearch(query)
+      }
+    } else if (voiceAction.type === "toggle_hide_ui") {
+      // handled di parent
     }
     onVoiceActionDone?.()
   }, [voiceAction])
 
-  const {coords,address,accuracy,error:gpsError,loading:gpsLoading,nearby,loadingNearby} = useGPS()
-  const notifs = useRealNotifs(coords)
+  // Proses pending search saat coords baru tersedia
+  useEffect(() => {
+    if (pendingSearch && coords) {
+      searchNearbyByQuery(pendingSearch, coords.lat, coords.lng)
+      setPendingSearch(null)
+    }
+  }, [coords, pendingSearch])
 
   const accent      = settings?.accentColor ?? "#00ffff"
   const accentDim   = `${accent}55`
@@ -1189,17 +1591,106 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
 
         {activeFeature==="nav"&&(
           <div className="flex gap-3.5 h-full items-center">
-            <div className="flex-1 h-full max-h-50 relative overflow-hidden rounded-md" style={{border:`1px solid ${accentDim}`,background:"#040d1a"}}>
-              {coords?(<iframe src={getMapUrl(coords.lat,coords.lng)} style={{width:"100%",height:"100%",border:"none",filter:"invert(1) hue-rotate(180deg) brightness(0.75) saturate(1.2)"}} title="GPS Map"/>):(<div className="w-full h-full flex flex-col items-center justify-center gap-2"><div style={{color:gpsError?"#f44":"#ff0",fontSize:9,letterSpacing:1,textAlign:"center",padding:"0 8px"}}>{gpsError?`⚠ ${gpsError}`:lang==="en"?"○ Getting GPS...":"○ Mendapatkan GPS..."}</div>{!gpsError&&<div style={{width:16,height:16,border:`2px solid ${accent}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 1s linear infinite"}}/>}</div>)}
+            {/* ── Peta — routing ke destination kalau ada ── */}
+            <div className="flex-1 h-full max-h-50 relative overflow-hidden rounded-md" style={{border:`1px solid ${destination?accent:accentDim}`,background:"#040d1a",transition:"border-color 0.3s"}}>
+              {coords
+                ? (<LeafletMap
+                    lat={coords.lat} lng={coords.lng}
+                    destLat={destination?.lat} destLng={destination?.lng}
+                    accent={accent} accentDim={accentDim}/>)
+                : (<div className="w-full h-full flex flex-col items-center justify-center gap-2">
+                    <div style={{color:gpsError?"#f44":"#ff0",fontSize:9,letterSpacing:1,textAlign:"center",padding:"0 8px"}}>
+                      {gpsError?`⚠ ${gpsError}`:lang==="en"?"○ Getting GPS...":"○ Mendapatkan GPS..."}
+                    </div>
+                    {!gpsError&&<div style={{width:16,height:16,border:`2px solid ${accent}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 1s linear infinite"}}/>}
+                  </div>)
+              }
+              {/* Badge destination aktif */}
+              {destination&&(
+                <div style={{position:"absolute",bottom:6,left:6,right:6,padding:"4px 8px",
+                  background:"rgba(0,0,0,0.75)",border:`1px solid ${accent}`,borderRadius:4,
+                  display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:10}}>{catIcon(destination.category)}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:9,color:accent,fontWeight:"bold",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{destination.name}</div>
+                    <div style={{fontSize:7,color:"#ff0"}}>▶ {destination.dist}</div>
+                  </div>
+                  <button onClick={()=>{ setDestination(null); activeSearchRef.current = false; setSearchQuery("") }}
+                    style={{fontSize:8,color:"#f66",background:"none",border:"none",cursor:"pointer",padding:"0 2px"}}>✕</button>
+                </div>
+              )}
             </div>
+
+            {/* ── Panel kanan ── */}
             <div className="flex-[1.3] flex flex-col gap-0 overflow-y-auto h-full">
               <div className="flex items-center gap-2 py-1.5" style={{borderBottom:`1px solid ${accentDim}`}}>
                 <div style={{width:7,height:7,borderRadius:"50%",flexShrink:0,background:coords?accent:"#ff0",boxShadow:`0 0 6px ${coords?accent:"#ff0"}`,animation:gpsLoading?"pulse 1s infinite":"none"}}/>
-                <span className="flex-1 text-[10px]" style={{color:accent}}>{gpsLoading?(lang==="en"?"Locating...":"Mencari..."):gpsError?gpsError:(lang==="en"?"You are here":"Kamu di sini")}</span>
+                <span className="flex-1 text-[10px]" style={{color:accent}}>
+                  {gpsLoading?(lang==="en"?"Locating...":"Mencari..."):gpsError?gpsError:(lang==="en"?"You are here":"Kamu di sini")}
+                </span>
               </div>
-              {coords&&!gpsError&&(<div className="py-1.5" style={{borderBottom:`1px solid ${accentDim}`}}><div style={{fontSize:9,color:accentDim,letterSpacing:1,marginBottom:2}}>{lang==="en"?"LOCATION":"LOKASI"}</div><div style={{fontSize:10,color:"#cde",lineHeight:1.4}}>{address}</div><div style={{fontSize:8,color:`${accent}66`,marginTop:2,fontFamily:"monospace"}}>{coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}{accuracy&&<span style={{color:"#ff0",marginLeft:4}}>±{accuracy}m</span>}</div></div>)}
-              {coords&&(<div style={{flex:1}}><div style={{fontSize:9,color:accentDim,letterSpacing:1,padding:"4px 0"}}>{loadingNearby?(lang==="en"?"↻ SEARCHING...":"↻ MENCARI..."):(lang==="en"?"NEARBY":"TERDEKAT")}</div>{loadingNearby&&<div style={{width:10,height:10,border:`1.5px solid ${accent}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>}{!loadingNearby&&nearby.map((p,i)=>(<div key={i} className="flex items-center gap-2 py-1.5" style={{borderBottom:`1px solid ${accent}11`,color:i===0?`${accent}cc`:`${accent}77`,animation:"fadeIn 0.3s ease",animationDelay:`${i*0.08}s`,animationFillMode:"both"}}><span style={{fontSize:10,flexShrink:0}}>{catIcon(p.category)}</span><div style={{flex:1,minWidth:0}}><div style={{fontSize:10,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:i===0?"#cde":"#89a"}}>{p.name}</div><div style={{fontSize:8,color:`${accent}55`}}>{p.category}</div></div><span style={{fontSize:9,flexShrink:0,fontFamily:"monospace",color:i===0?"#ff0":"#ff08"}}>{p.dist}</span></div>))}</div>)}
-              <div style={{marginTop:"auto",padding:"5px 8px",background:"rgba(0,255,0,0.07)",border:"1px solid rgba(0,255,136,0.2)",borderRadius:5,color:"#0f8",fontSize:9,letterSpacing:1}}>{gpsError?`⚠ ${gpsError}`:coords?(lang==="en"?"● GPS ACTIVE":"● GPS AKTIF"):(lang==="en"?"○ Waiting GPS":"○ Menunggu GPS")}</div>
+
+              {coords&&!gpsError&&(
+                <div className="py-1.5" style={{borderBottom:`1px solid ${accentDim}`}}>
+                  <div style={{fontSize:9,color:accentDim,letterSpacing:1,marginBottom:2}}>{lang==="en"?"LOCATION":"LOKASI"}</div>
+                  <div style={{fontSize:10,color:"#cde",lineHeight:1.4}}>{address}</div>
+                  <div style={{fontSize:8,color:`${accent}66`,marginTop:2,fontFamily:"monospace"}}>
+                    {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
+                    {accuracy&&<span style={{color:"#ff0",marginLeft:4}}>±{accuracy}m</span>}
+                  </div>
+                </div>
+              )}
+
+              {/* Label search query kalau dari voice */}
+              {searchQuery&&(
+                <div style={{padding:"3px 6px",fontSize:8,color:accent,letterSpacing:1,
+                  background:`${accent}10`,borderBottom:`1px solid ${accentDim}`}}>
+                  🔍 {searchQuery}
+                  <span onClick={()=>{ setDestination(null); activeSearchRef.current = false; setSearchQuery("") }} style={{float:"right",cursor:"pointer",color:"#f66"}}>✕</span>
+                </div>
+              )}
+
+              {coords&&(
+                <div style={{flex:1}}>
+                  <div style={{fontSize:9,color:accentDim,letterSpacing:1,padding:"4px 0"}}>
+                    {loadingNearby?(lang==="en"?"↻ SEARCHING...":"↻ MENCARI..."):(lang==="en"?"NEARBY":"TERDEKAT")}
+                  </div>
+                  {loadingNearby&&<div style={{width:10,height:10,border:`1.5px solid ${accent}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>}
+                  {!loadingNearby&&nearby.map((p,i)=>{
+                    const isActive = destination?.name===p.name && destination?.lat===p.lat
+                    return (
+                      <div key={i} onClick={()=>{ if(isActive){ setDestination(null); activeSearchRef.current=false; setSearchQuery("") } else { setDestination(p) } }}
+                        className="flex items-center gap-2 py-1.5"
+                        style={{borderBottom:`1px solid ${isActive?accent+"44":accent+"11"}`,
+                          cursor:"pointer",
+                          background:isActive?`${accent}12`:"transparent",
+                          borderRadius:isActive?4:0,padding:isActive?"4px 6px":"6px 0",
+                          animation:"fadeIn 0.3s ease",animationDelay:`${i*0.08}s`,animationFillMode:"both"}}>
+                        <span style={{fontSize:10,flexShrink:0}}>{catIcon(p.category)}</span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:10,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+                            color:isActive?accent:i===0?"#cde":"#89a",
+                            fontWeight:isActive?"bold":"normal"}}>
+                            {p.name}
+                          </div>
+                          <div style={{fontSize:8,color:`${accent}55`}}>{p.category}</div>
+                        </div>
+                        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:1}}>
+                          <span style={{fontSize:9,flexShrink:0,fontFamily:"monospace",color:isActive?"#0f8":i===0?"#ff0":"#ff08"}}>{p.dist}</span>
+                          {isActive&&<span style={{fontSize:7,color:"#0f8",letterSpacing:0.5}}>▶ AKTIF</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              <div style={{marginTop:"auto",padding:"5px 8px",background:"rgba(0,255,0,0.07)",
+                border:"1px solid rgba(0,255,136,0.2)",borderRadius:5,color:"#0f8",fontSize:9,letterSpacing:1}}>
+                {destination
+                  ? `▶ ${lang==="en"?"Routing to":"Menuju"}: ${destination.name}`
+                  : gpsError?`⚠ ${gpsError}`:coords?(lang==="en"?"● GPS ACTIVE":"● GPS AKTIF"):(lang==="en"?"○ Waiting GPS":"○ Menunggu GPS")}
+              </div>
             </div>
           </div>
         )}

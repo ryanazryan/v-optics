@@ -125,7 +125,7 @@ export function VoicePanel({ t, accent: accentProp, onAction }: VoicePanelProps)
   const [chat, setChat]             = useState<ChatMessage[]>([])
   const [bars, setBars]             = useState(Array(20).fill(4))
   const [errorMsg, setErrorMsg]     = useState("")
-  const [silenceTimer, setSilenceTimer] = useState<ReturnType<typeof setTimeout>|null>(null)
+  // silenceTimer dikelola sebagai local var di dalam startRecognition closure
 
   const recognitionRef = useRef<globalThis.SpeechRecognition | null>(null)
   const barsRef        = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -200,20 +200,30 @@ export function VoicePanel({ t, accent: accentProp, onAction }: VoicePanelProps)
     recognition.maxAlternatives = 3
     recognition.continuous      = false // restart manual supaya lebih stabil
 
-    recognition.onresult = (e: SpeechRecognitionEvent) => {
-      let finalText = "", interimText = ""
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) finalText += e.results[i][0].transcript
-        else interimText += e.results[i][0].transcript
-      }
-      setInterim(interimText)
+    // Buffer untuk kumpulkan semua kata selama sesi bicara
+    let sessionText = ""
+    let silenceTimeout: ReturnType<typeof setTimeout> | null = null
 
-      // Reset silence timer setiap ada speech
-      if (silenceTimer) clearTimeout(silenceTimer)
-      if (finalText) {
-        setSilenceTimer(setTimeout(() => {
-          processTranscript(finalText)
-        }, 600)) // tunggu 600ms sebelum proses (jeda bicara)
+    recognition.onresult = (e: SpeechRecognitionEvent) => {
+      let interimText = ""
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript
+        if (e.results[i].isFinal) {
+          sessionText += (sessionText ? " " : "") + t.trim()
+        } else {
+          interimText += t
+        }
+      }
+      // Tampilkan interim + akumulasi sejauh ini
+      setInterim(sessionText + (interimText ? " " + interimText : ""))
+
+      // Reset silence timer — proses setelah 2 detik tidak bicara
+      if (silenceTimeout) clearTimeout(silenceTimeout)
+      if (sessionText) {
+        silenceTimeout = setTimeout(() => {
+          // Hentikan recognition → akan trigger onend → proses di sana
+          try { recognition.stop() } catch {}
+        }, 2000)
       }
     }
 
@@ -221,15 +231,31 @@ export function VoicePanel({ t, accent: accentProp, onAction }: VoicePanelProps)
       startBars()
     }
 
+    recognition.onspeechend = () => {
+      // Extend grace period setelah speech end
+      if (silenceTimeout) clearTimeout(silenceTimeout)
+      silenceTimeout = setTimeout(() => {
+        try { recognition.stop() } catch {}
+      }, 1200)
+    }
+
     recognition.onend = () => {
+      if (silenceTimeout) clearTimeout(silenceTimeout)
       stopBars()
       setListening(false)
       setInterim("")
+
+      // Proses teks yang terkumpul di sesi ini
+      if (sessionText.trim()) {
+        processTranscript(sessionText.trim())
+        sessionText = ""
+      }
+
       // Auto restart kalau mode auto masih aktif
-      if (autoRef.current && !processing) {
+      if (autoRef.current) {
         setTimeout(() => {
           if (autoRef.current) startRecognition()
-        }, 300)
+        }, 600) // jeda sebelum restart
       }
     }
 
@@ -254,7 +280,7 @@ export function VoicePanel({ t, accent: accentProp, onAction }: VoicePanelProps)
     } catch {
       setListening(false)
     }
-  }, [lang, processing, startBars, stopBars, processTranscript, silenceTimer])
+  }, [lang, processing, startBars, stopBars, processTranscript])
 
   // Toggle auto mode
   const toggleAuto = useCallback(() => {
@@ -296,7 +322,6 @@ export function VoicePanel({ t, accent: accentProp, onAction }: VoicePanelProps)
     autoRef.current = false
     stopBars()
     try { recognitionRef.current?.stop() } catch {}
-    if (silenceTimer) clearTimeout(silenceTimer)
   }, [])
 
   return (

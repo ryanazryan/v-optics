@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing prompt" }, { status: 400 })
     }
 
-    const maxTokens = mode === "ocr" ? 1000 : mode === "voice" ? 300 : 400
+    const maxTokens = mode === "ocr" ? 1000 : mode === "voice" ? 300 : mode === "detect" ? 800 : 400
 
     let messages: any[]
 
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     const msg = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: maxTokens,
-      temperature: mode === "ocr" ? 0.1 : mode === "voice" ? 0.7 : 0.4,
+      temperature: mode === "ocr" ? 0.1 : mode === "voice" ? 0.7 : mode === "detect" ? 0.1 : 0.4,
       messages,
     } as any)
 
