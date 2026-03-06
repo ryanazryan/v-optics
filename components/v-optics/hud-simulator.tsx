@@ -442,6 +442,24 @@ function useGPS() {
   return {coords,address,accuracy,error,loading,nearby,loadingNearby,destination,setDestination,searchQuery,setSearchQuery,searchNearbyByQuery,activeSearchRef}
 }
 
+// ── BATTERY HOOK ─────────────────────────────────────────────────────────────
+function useBattery() {
+  const [level,    setLevel]    = useState<number|null>(null)
+  const [charging, setCharging] = useState(false)
+
+  useEffect(() => {
+    if (typeof navigator === "undefined") return
+    ;(navigator as any).getBattery?.().then((bat: any) => {
+      setLevel(Math.round(bat.level * 100))
+      setCharging(bat.charging)
+      bat.addEventListener("levelchange",    () => setLevel(Math.round(bat.level * 100)))
+      bat.addEventListener("chargingchange", () => setCharging(bat.charging))
+    })
+  }, [])
+
+  return { level, charging }
+}
+
 // ── REAL NOTIFS HOOK ──────────────────────────────────────────────────────────
 function useRealNotifs(coords: {lat:number;lng:number}|null) {
   const [notifs, setNotifs] = useState<RealNotif[]>([])
@@ -1502,7 +1520,8 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
   }
 
   const {coords,address,accuracy,error:gpsError,loading:gpsLoading,nearby,loadingNearby,destination,setDestination,searchQuery,setSearchQuery,searchNearbyByQuery,activeSearchRef} = useGPS()
-  const notifs = useRealNotifs(coords)
+  const notifs  = useRealNotifs(coords)
+  const battery = useBattery()
 
   // Pending search query dari voice — menunggu coords tersedia
   const [pendingSearch, setPendingSearch] = useState<string|null>(null)
@@ -1566,7 +1585,16 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
           <div className="text-xs font-bold tracking-[4px]" style={{color:accent,textShadow:`0 0 8px ${accent}`}}>{timeStr}</div>
           <div className="flex gap-2.5 items-center">
             <span className="text-[9px]" style={{color:"#0f8"}}>{t.active}</span>
-            <span className="text-[9px]" style={{color:"#ff0"}}>⚡ 87%</span>
+            <span className="text-[9px]" style={{
+              color: battery.level === null ? "#888"
+                   : battery.charging ? "#0f8"
+                   : battery.level <= 15 ? "#f44"
+                   : battery.level <= 30 ? "#f80"
+                   : "#ff0"
+            }}>
+              {battery.charging ? "⚡" : battery.level !== null && battery.level <= 20 ? "🪫" : "🔋"}
+              {battery.level !== null ? ` ${battery.level}%` : " --"}
+            </span>
             <span className="text-[9px]" style={{color:gpsError?"#f44":coords?"#0f8":"#ff0"}}>{gpsError?"⚠ GPS":coords?"● GPS":"○ GPS"}</span>
             {notifs.length>0&&<span className="text-[9px]" style={{color:accent,animation:"pulse 2s infinite"}}>◉ {notifs.length}</span>}
           </div>
