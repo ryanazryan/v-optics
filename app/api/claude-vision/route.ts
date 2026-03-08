@@ -1,3 +1,4 @@
+// app/api/claude-vision/route.ts
 import { NextRequest, NextResponse } from "next/server"
 import Anthropic from "@anthropic-ai/sdk"
 
@@ -7,29 +8,40 @@ const client = new Anthropic({
 
 export async function POST(req: NextRequest) {
   try {
-    const { image, prompt, mode, textOnly } = await req.json()
+    const { image, prompt, messages: msgHistory, mode, textOnly } = await req.json()
 
-    if (!prompt) {
+    if (!prompt && !msgHistory) {
       return NextResponse.json({ error: "Missing prompt" }, { status: 400 })
     }
 
-    const maxTokens = mode === "ocr" ? 1000 : mode === "voice" ? 300 : mode === "detect" ? 800 : 400
+    const maxTokens = mode === "ocr" ? 1000 : mode === "voice" ? 500 : mode === "detect" ? 800 : 400
+    const temperature = mode === "ocr" ? 0.1 : mode === "voice" ? 0.8 : mode === "detect" ? 0.1 : 0.5
 
     let messages: any[]
 
+    if (msgHistory && Array.isArray(msgHistory) && msgHistory.length > 0) {
+      // Chatbot mode — multi-turn conversation history
+      // prompt is used as the system prompt
+      const response = await client.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: maxTokens,
+        temperature,
+        system: prompt,
+        messages: msgHistory,
+      } as any)
+      const result = (response.content.find((c) => c.type === "text") as Anthropic.TextBlock | undefined)?.text ?? ""
+      return NextResponse.json({ result })
+    }
+
     if (textOnly || !image) {
-      messages = [{
-        role: "user",
-        content: prompt
-      }]
+      // Single-turn text (voice cmd, news analysis, etc.)
+      messages = [{ role: "user", content: prompt }]
     } else {
+      // Vision — with image
       messages = [{
         role: "user",
         content: [
-          {
-            type: "image",
-            source: { type: "base64", media_type: "image/jpeg", data: image }
-          },
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: image } },
           { type: "text", text: prompt }
         ]
       }]
@@ -38,7 +50,7 @@ export async function POST(req: NextRequest) {
     const msg = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: maxTokens,
-      temperature: mode === "ocr" ? 0.1 : mode === "voice" ? 0.7 : mode === "detect" ? 0.1 : 0.4,
+      temperature,
       messages,
     } as any)
 

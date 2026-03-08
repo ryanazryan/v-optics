@@ -42,57 +42,79 @@ interface ChatMessage {
 }
 
 // Kirim transcript ke Claude untuk diproses sebagai perintah bebas
-async function processWithClaude(transcript: string, lang: string): Promise<{
+async function processWithClaude(transcript: string, lang: string, chatHistory: {role:string,text:string}[]): Promise<{
   reply: string
   action: VoiceAction
 }> {
-  const systemPrompt = lang === "en"
-    ? `You are V-Optics, an AI assistant integrated in smart glasses HUD. 
-The user speaks commands naturally. Your job:
-1. Understand what they want
-2. Reply briefly (max 2 sentences, conversational)
-3. Return a JSON action to execute in the HUD
+  // Build conversation history untuk konteks
+  const historyMessages = chatHistory.slice(-8).map(m => ({
+    role: m.role === "user" ? "user" : "assistant",
+    content: m.text
+  }))
 
-Available actions:
-- {"type":"navigate","feature":"nav"} — open navigation/maps
-- {"type":"navigate","feature":"notify"} — open notifications  
+  const systemPrompt = lang === "en"
+    ? `You are V-Optics AI, a smart and friendly assistant integrated into smart glasses HUD.
+You can do ANYTHING: answer questions, tell news, explain things, have conversations, give recommendations, tell jokes, help with tasks — just like ChatGPT but for smart glasses.
+
+For HUD control, you ALSO return a JSON action. For normal conversation, use {"type":"none"}.
+
+Available HUD actions:
+- {"type":"navigate","feature":"home"} — open home/news feed
+- {"type":"navigate","feature":"nav"} — open navigation/maps  
+- {"type":"navigate","feature":"notify"} — open notifications
 - {"type":"navigate","feature":"translate"} — open camera translator
 - {"type":"navigate","feature":"ai"} — open AI vision camera
 - {"type":"navigate","feature":"health"} — open health monitor
 - {"type":"navigate","feature":"detect"} — open object detection
-- {"type":"toggle_hide_ui"} — toggle clean mode (hide/show HUD)
-- {"type":"search_nearby","query":"<search term>"} — search nearby places (cafe, hospital, gas station, etc)
-- {"type":"none"} — just reply, no HUD action needed
+- {"type":"navigate","feature":"voice"} — open voice chat
+- {"type":"toggle_hide_ui"} — toggle clean/HUD mode
+- {"type":"search_nearby","query":"<place>"} — search nearby places
+- {"type":"none"} — just chat, no HUD action
 
-Respond ONLY in this JSON format (no markdown):
+Personality: warm, smart, concise. Max 3 sentences per reply unless explaining something complex.
+If asked about news/current events, give a brief informative answer based on your knowledge.
+Reply in the same language the user uses.
+
+Respond ONLY in this JSON (no markdown):
 {"reply":"<your response>","action":<action object>}`
-    : `Kamu adalah V-Optics, asisten AI yang terintegrasi di HUD kacamata pintar.
-Pengguna berbicara dengan perintah bebas. Tugasmu:
-1. Pahami apa yang mereka inginkan
-2. Balas singkat (maks 2 kalimat, seperti percakapan)
-3. Return JSON action untuk dieksekusi di HUD
+    : `Kamu adalah V-Optics AI, asisten cerdas dan ramah yang terintegrasi di HUD kacamata pintar.
+Kamu BISA SEGALANYA: jawab pertanyaan, ceritakan berita, jelaskan hal-hal, ngobrol, beri rekomendasi, bercanda, bantu tugas — seperti ChatGPT tapi untuk kacamata pintar.
 
-Aksi yang tersedia:
-- {"type":"navigate","feature":"nav"} — buka navigasi/maps
+Untuk kontrol HUD, kamu juga return JSON action. Untuk percakapan biasa, gunakan {"type":"none"}.
+
+Aksi HUD yang tersedia:
+- {"type":"navigate","feature":"home"} — buka beranda/feed berita
+- {"type":"navigate","feature":"nav"} — buka navigasi/peta
 - {"type":"navigate","feature":"notify"} — buka notifikasi
-- {"type":"navigate","feature":"translate"} — buka kamera terjemahan
+- {"type":"navigate","feature":"translate"} — buka translator kamera
 - {"type":"navigate","feature":"ai"} — buka AI vision kamera
 - {"type":"navigate","feature":"health"} — buka monitor kesehatan
 - {"type":"navigate","feature":"detect"} — buka deteksi objek
-- {"type":"toggle_hide_ui"} — toggle clean mode (sembunyikan/tampilkan HUD)
-- {"type":"search_nearby","query":"<kata pencarian>"} — cari tempat terdekat (cafe, rumah sakit, SPBU, dll)
-- {"type":"none"} — hanya balas, tidak ada aksi HUD
+- {"type":"navigate","feature":"voice"} — buka voice chat
+- {"type":"toggle_hide_ui"} — toggle clean mode
+- {"type":"search_nearby","query":"<tempat>"} — cari tempat terdekat
+- {"type":"none"} — hanya ngobrol, tidak ada aksi HUD
 
-Balas HANYA dalam format JSON ini (tanpa markdown):
+Kepribadian: hangat, cerdas, ringkas. Maks 3 kalimat per balasan kecuali menjelaskan sesuatu kompleks.
+Kalau ditanya berita/kejadian terkini, jawab informatif berdasarkan pengetahuanmu.
+Balas dalam bahasa yang sama dengan pengguna.
+
+Balas HANYA dalam JSON ini (tanpa markdown):
 {"reply":"<balasanmu>","action":<objek aksi>}`
+
+  const messages: any[] = [
+    ...historyMessages.map(m => ({ role: m.role, content: m.content })),
+    { role: "user", content: transcript }
+  ]
 
   const res = await fetch("/api/claude-vision", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      prompt: `${systemPrompt}\n\nUser said: "${transcript}"`,
+      prompt: systemPrompt,
+      messages,
       mode: "voice",
-      textOnly: true, // signal ke route.ts bahwa tidak ada image
+      textOnly: true,
     })
   })
 
@@ -101,16 +123,17 @@ Balas HANYA dalam format JSON ini (tanpa markdown):
   const raw = (data.result ?? "").replace(/```json|```/g, "").trim()
 
   try {
-    const parsed = JSON.parse(raw)
+    const jsonStart = raw.indexOf("{")
+    const parsed = JSON.parse(jsonStart >= 0 ? raw.slice(jsonStart) : raw)
     return {
       reply: parsed.reply ?? "Oke.",
       action: parsed.action ?? { type: "none" }
     }
   } catch {
-    // Kalau Claude tidak return JSON valid, tetap tampilkan reply
     return { reply: raw || "Oke.", action: { type: "none" } }
   }
 }
+
 
 export function VoicePanel({ t, accent: accentProp, onAction }: VoicePanelProps) {
   const accent      = accentProp ?? "#00ffff"
@@ -169,7 +192,7 @@ export function VoicePanel({ t, accent: accentProp, onAction }: VoicePanelProps)
     addChat({ role: "user", text })
 
     try {
-      const { reply, action } = await processWithClaude(text, lang)
+      const { reply, action } = await processWithClaude(text, lang, chat)
       addChat({ role: "assistant", text: reply, action })
 
       // Eksekusi aksi di HUD
@@ -325,164 +348,206 @@ export function VoicePanel({ t, accent: accentProp, onAction }: VoicePanelProps)
   }, [])
 
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:12,height:"100%",minHeight:0}}>
+    <div style={{display:"flex",flexDirection:"column",height:"100%",minHeight:0,gap:0}}>
 
-      {/* ── Auto mode toggle ── */}
-      <div style={{display:"flex",gap:8,alignItems:"center"}}>
-        {/* Auto listen toggle */}
-        <div onClick={toggleAuto}
-          style={{flex:1,display:"flex",alignItems:"center",justifyContent:"space-between",
-            padding:"10px 14px",borderRadius:8,cursor:"pointer",transition:"all 0.2s",
-            background:autoMode?`${accent}20`:accentFaint,
-            border:`1px solid ${autoMode?accent:accentDim}`}}>
-          <div>
-            <div style={{fontSize:10,fontWeight:"bold",color:autoMode?accent:"#89a",letterSpacing:1}}>
-              {autoMode
-                ? (lang==="en"?"● AUTO LISTENING":"● AUTO MENDENGARKAN")
-                : (lang==="en"?"AUTO LISTEN":"AUTO DENGARKAN")}
-            </div>
-            <div style={{fontSize:8,color:accentDim,marginTop:2}}>
-              {autoMode
-                ? (lang==="en"?"Tap to stop":"Ketuk untuk berhenti")
-                : (lang==="en"?"Always on, no button needed":"Selalu aktif, tanpa tombol")}
-            </div>
-          </div>
-          {/* Toggle switch */}
-          <div style={{width:36,height:18,borderRadius:9,
-            background:autoMode?`${accent}44`:accentDim,
-            position:"relative",transition:"background 0.2s"}}>
-            <div style={{position:"absolute",width:14,height:14,borderRadius:"50%",top:2,
-              left:autoMode?20:2,transition:"left 0.2s",
-              background:autoMode?accent:"#567",
-              boxShadow:autoMode?`0 0 6px ${accent}`:"none"}}/>
+      {/* ── Header bar ── */}
+      <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",
+        borderBottom:`1px solid ${accentDim}`,flexShrink:0}}>
+        {/* Avatar */}
+        <div style={{width:28,height:28,borderRadius:"50%",flexShrink:0,
+          background:`linear-gradient(135deg,${accent}33,${accent}11)`,
+          border:`1.5px solid ${accent}`,display:"flex",alignItems:"center",
+          justifyContent:"center",fontSize:13,
+          boxShadow:autoMode||listening?`0 0 10px ${accent}55`:"none"}}>
+          ⬡
+        </div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:10,fontWeight:"bold",color:accent,letterSpacing:0.5}}>V-Optics AI</div>
+          <div style={{fontSize:8,color:accentDim}}>
+            {processing?"⏳ berpikir..."
+              :listening?"● mendengarkan..."
+              :autoMode?"◌ siap mendengar"
+              :"siap"}
           </div>
         </div>
-
-        {/* Manual tap button */}
+        {/* Auto mode pill */}
+        <div onClick={toggleAuto} style={{
+          display:"flex",alignItems:"center",gap:5,padding:"4px 10px",
+          borderRadius:20,cursor:"pointer",transition:"all 0.2s",
+          background:autoMode?`${accent}22`:accentFaint,
+          border:`1px solid ${autoMode?accent:accentDim}`}}>
+          <div style={{width:6,height:6,borderRadius:"50%",
+            background:autoMode?accent:"#567",
+            boxShadow:autoMode?`0 0 6px ${accent}`:"none",
+            transition:"all 0.2s"}}/>
+          <span style={{fontSize:8,color:autoMode?accent:"#89a",letterSpacing:1}}>
+            {autoMode?"AUTO ON":"AUTO"}
+          </span>
+        </div>
+        {/* Mic button */}
         <button onClick={tapToSpeak}
-          style={{width:48,height:48,borderRadius:"50%",cursor:"pointer",
+          style={{width:32,height:32,borderRadius:"50%",cursor:"pointer",flexShrink:0,
             background:listening?`${accent}30`:accentFaint,
-            border:`2px solid ${listening?accent:accentDim}`,
-            color:accent,fontSize:18,transition:"all 0.2s",flexShrink:0,
-            boxShadow:listening?`0 0 20px ${accent}55`:"none",
+            border:`1.5px solid ${listening?accent:accentDim}`,
+            color:accent,fontSize:14,transition:"all 0.2s",
+            boxShadow:listening?`0 0 14px ${accent}55`:"none",
             position:"relative",overflow:"hidden"}}>
-          {listening && (
-            <div style={{position:"absolute",inset:-4,borderRadius:"50%",
-              border:`2px solid ${accent}44`,animation:"ripple 1s ease-out infinite"}}/>
-          )}
+          {listening&&<div style={{position:"absolute",inset:-2,borderRadius:"50%",
+            border:`1.5px solid ${accent}44`,animation:"ripple 1s ease-out infinite"}}/>}
           🎤
         </button>
       </div>
 
-      {/* ── Waveform ── */}
-      <div style={{display:"flex",alignItems:"center",justifyContent:"center",
-        gap:2,height:32,padding:"0 8px"}}>
-        {bars.map((h,i) => (
-          <div key={i} style={{
-            width:3,borderRadius:2,transition:"height 0.07s ease",
-            background:`linear-gradient(to top,${accent}88,${accent})`,
-            height: listening ? h : autoMode ? 4 + Math.sin(Date.now()/300+i)*2 : 4,
-            opacity: listening ? 0.8 : autoMode ? 0.3 : 0.15,
-          }}/>
-        ))}
-      </div>
-
-      {/* ── Status ── */}
-      <div style={{textAlign:"center",fontSize:9,letterSpacing:2,minHeight:12,
-        color: processing?"#ff0":listening?accent:autoMode?`${accent}66`:accentDim}}>
-        {processing
-          ? (lang==="en"?"⏳ PROCESSING...":"⏳ MEMPROSES...")
-          : listening
-            ? (lang==="en"?"● LISTENING — speak now":"● MENDENGARKAN — bicara sekarang")
-            : autoMode
-              ? (lang==="en"?"◌ WAITING FOR SPEECH...":"◌ MENUNGGU SUARA...")
-              : (lang==="en"?"TAP MIC OR ENABLE AUTO":"KETUK MIC ATAU AKTIFKAN AUTO")}
-      </div>
-
-      {/* ── Interim transcript ── */}
-      {interim && (
-        <div style={{padding:"6px 10px",borderRadius:6,fontSize:10,fontStyle:"italic",
-          color:`${accent}88`,border:`1px solid ${accentDim}`,background:accentFaint,
-          textAlign:"center"}}>
-          "{interim}..."
-        </div>
-      )}
-
-      {/* ── Error ── */}
-      {errorMsg && (
-        <div style={{padding:"8px 12px",borderRadius:6,fontSize:10,color:"#f88",
-          border:"1px solid rgba(255,80,80,0.3)",background:"rgba(255,60,60,0.06)"}}>
-          ⚠ {errorMsg}
-        </div>
-      )}
-
-      {/* ── Chat history ── */}
-      <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",
-        gap:6,minHeight:0,paddingRight:2}}>
-        {chat.length === 0 && (
-          <div style={{textAlign:"center",color:accentDim,fontSize:9,
-            letterSpacing:1,marginTop:12,lineHeight:1.8}}>
-            {lang==="en"
-              ? "Say anything — commands, questions, places nearby...\nV-Optics AI will understand and act."
-              : "Ucapkan apa saja — perintah, pertanyaan, tempat terdekat...\nV-Optics AI akan memahami dan bertindak."}
-          </div>
-        )}
-
-        {chat.map(msg => (
-          <div key={msg.id} style={{
-            display:"flex",flexDirection:"column",
-            alignItems:msg.role==="user"?"flex-end":"flex-start",
-            animation:"fadeIn 0.2s ease",
-          }}>
-            <div style={{
-              maxWidth:"85%",padding:"7px 11px",borderRadius:msg.role==="user"?
-                "12px 12px 2px 12px":"12px 12px 12px 2px",
-              background:msg.role==="user"?`${accent}22`:accentFaint,
-              border:`1px solid ${msg.role==="user"?accentDim:`${accent}22`}`,
-            }}>
-              <div style={{fontSize:10,lineHeight:1.5,
-                color:msg.role==="user"?accent:"#cde"}}>
-                {msg.text}
-              </div>
-              {/* Action badge */}
-              {msg.action && msg.action.type !== "none" && (
-                <div style={{marginTop:4,fontSize:7,letterSpacing:1,
-                  color:`${accent}66`,display:"flex",alignItems:"center",gap:4}}>
-                  <span style={{color:accent}}>▸</span>
-                  {msg.action.type==="navigate" && `HUD → ${(msg.action as any).feature.toUpperCase()}`}
-                  {msg.action.type==="search_nearby" && `NEARBY → ${(msg.action as any).query}`}
-                  {msg.action.type==="toggle_hide_ui" && "TOGGLE CLEAN MODE"}
-                </div>
-              )}
-            </div>
-            <div style={{fontSize:7,color:accentDim,marginTop:2,
-              marginLeft:msg.role==="user"?0:6,marginRight:msg.role==="user"?6:0}}>
-              {msg.role==="user"?"You":"V-Optics AI"} · {msg.time}
-            </div>
-          </div>
-        ))}
-        <div ref={chatEndRef}/>
-      </div>
-
-      {/* ── Contoh perintah ── */}
-      {chat.length === 0 && (
-        <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-          {(lang==="en"
-            ? ["nearest cafe","open navigation","translate this text","detect objects","hide HUD","how's my health?"]
-            : ["cafe terdekat","buka navigasi","terjemahkan teks ini","deteksi objek","sembunyikan HUD","cek kesehatan"]
-          ).map(ex => (
-            <div key={ex} onClick={() => processTranscript(ex)}
-              style={{padding:"4px 10px",borderRadius:20,fontSize:8,cursor:"pointer",
-                border:`1px solid ${accentDim}`,background:accentFaint,color:`${accent}88`,
-                letterSpacing:0.5,transition:"all 0.15s"}}
-              onMouseEnter={e=>(e.currentTarget.style.background=`${accent}20`)}
-              onMouseLeave={e=>(e.currentTarget.style.background=accentFaint)}>
-              {ex}
-            </div>
+      {/* ── Waveform bar (compact, only when listening) ── */}
+      {(listening||autoMode)&&(
+        <div style={{display:"flex",alignItems:"center",justifyContent:"center",
+          gap:1.5,height:20,padding:"0 16px",flexShrink:0,
+          background:`${accent}06`,borderBottom:`1px solid ${accentDim}`}}>
+          {bars.map((h,i)=>(
+            <div key={i} style={{
+              width:2,borderRadius:2,
+              background:listening?`${accent}`:`${accent}44`,
+              height:listening?Math.max(2,h*0.5):3,
+              transition:"height 0.07s ease",
+              opacity:listening?0.9:0.4,
+            }}/>
           ))}
         </div>
       )}
 
+      {/* ── Error ── */}
+      {errorMsg&&(
+        <div style={{padding:"6px 12px",fontSize:9,color:"#f88",flexShrink:0,
+          background:"rgba(255,60,60,0.06)",borderBottom:"1px solid rgba(255,80,80,0.2)"}}>
+          ⚠ {errorMsg}
+        </div>
+      )}
+
+      {/* ── Chat messages ── */}
+      <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",
+        gap:8,padding:"10px 10px 6px",minHeight:0}}>
+
+        {chat.length===0&&(
+          <div style={{flex:1,display:"flex",flexDirection:"column",
+            alignItems:"center",justifyContent:"center",gap:12,padding:"20px 0"}}>
+            <div style={{width:48,height:48,borderRadius:"50%",
+              background:`linear-gradient(135deg,${accent}22,${accent}08)`,
+              border:`1.5px solid ${accentDim}`,
+              display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:22}}>⬡</div>
+            <div style={{textAlign:"center",color:accentDim,fontSize:9,
+              letterSpacing:0.5,lineHeight:1.9}}>
+              {lang==="en"
+                ?"Ask me anything — news, navigation,questions, commands, or just chat!"
+                :"Tanya apa saja — berita, navigasi, pertanyaan, perintah, atau sekadar ngobrol!"}
+            </div>
+            {/* Quick suggestion chips */}
+            <div style={{display:"flex",flexWrap:"wrap",gap:5,justifyContent:"center",marginTop:4}}>
+              {(lang==="en"
+                ?["Today's news","Nearest cafe","Open maps","What time is it?","Tell me a joke"]
+                :["Berita hari ini","Cafe terdekat","Buka peta","Jam berapa sekarang?","Ceritakan lelucon"]
+              ).map(s=>(
+                <div key={s} onClick={()=>processTranscript(s)}
+                  style={{padding:"5px 12px",borderRadius:20,fontSize:8,cursor:"pointer",
+                    border:`1px solid ${accentDim}`,background:accentFaint,
+                    color:`${accent}99`,letterSpacing:0.3,transition:"all 0.15s"}}
+                  onMouseEnter={e=>{e.currentTarget.style.background=`${accent}20`;e.currentTarget.style.color=accent}}
+                  onMouseLeave={e=>{e.currentTarget.style.background=accentFaint;e.currentTarget.style.color=`${accent}99`}}>
+                  {s}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {chat.map((msg,mi)=>(
+          <div key={msg.id} style={{
+            display:"flex",
+            flexDirection:msg.role==="user"?"row-reverse":"row",
+            alignItems:"flex-end",gap:6,
+            animation:"fadeIn 0.2s ease",
+          }}>
+            {/* Avatar dot */}
+            {msg.role==="assistant"&&(
+              <div style={{width:20,height:20,borderRadius:"50%",flexShrink:0,
+                background:`${accent}22`,border:`1px solid ${accentDim}`,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:9,marginBottom:2}}>⬡</div>
+            )}
+
+            <div style={{maxWidth:"82%",display:"flex",flexDirection:"column",
+              alignItems:msg.role==="user"?"flex-end":"flex-start",gap:2}}>
+              {/* Bubble */}
+              <div style={{
+                padding:"8px 11px",
+                borderRadius:msg.role==="user"?"14px 14px 3px 14px":"14px 14px 14px 3px",
+                background:msg.role==="user"
+                  ?`linear-gradient(135deg,${accent}30,${accent}18)`
+                  :`rgba(255,255,255,0.04)`,
+                border:`1px solid ${msg.role==="user"?accentDim:`${accent}18`}`,
+                backdropFilter:"blur(4px)",
+              }}>
+                <div style={{fontSize:10,lineHeight:1.6,
+                  color:msg.role==="user"?accent:"#d8eaf5",
+                  whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+                  {msg.text}
+                </div>
+                {/* Action badge */}
+                {msg.action&&msg.action.type!=="none"&&(
+                  <div style={{marginTop:5,paddingTop:5,
+                    borderTop:`1px solid ${accent}22`,
+                    fontSize:7,color:`${accent}77`,
+                    display:"flex",alignItems:"center",gap:4}}>
+                    <span style={{color:accent,fontSize:8}}>▸</span>
+                    {msg.action.type==="navigate"&&`→ ${(msg.action as any).feature?.toUpperCase()}`}
+                    {msg.action.type==="search_nearby"&&`📍 ${(msg.action as any).query}`}
+                    {msg.action.type==="toggle_hide_ui"&&"◐ clean mode"}
+                  </div>
+                )}
+              </div>
+              {/* Timestamp */}
+              <div style={{fontSize:7,color:`${accentDim}`,
+                paddingLeft:msg.role==="user"?0:4,paddingRight:msg.role==="user"?4:0}}>
+                {msg.role==="assistant"?"V-Optics AI":"Kamu"} · {msg.time}
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {/* Typing indicator */}
+        {processing&&(
+          <div style={{display:"flex",alignItems:"flex-end",gap:6}}>
+            <div style={{width:20,height:20,borderRadius:"50%",flexShrink:0,
+              background:`${accent}22`,border:`1px solid ${accentDim}`,
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:9}}>⬡</div>
+            <div style={{padding:"8px 12px",borderRadius:"14px 14px 14px 3px",
+              background:`rgba(255,255,255,0.04)`,border:`1px solid ${accent}18`}}>
+              <div style={{display:"flex",gap:3,alignItems:"center"}}>
+                {[0,1,2].map(i=>(
+                  <div key={i} style={{width:5,height:5,borderRadius:"50%",
+                    background:accent,opacity:0.6,
+                    animation:`bounce 1.2s ease infinite`,
+                    animationDelay:`${i*0.2}s`}}/>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Interim preview */}
+        {interim&&(
+          <div style={{display:"flex",justifyContent:"flex-end"}}>
+            <div style={{maxWidth:"80%",padding:"6px 10px",
+              borderRadius:"12px 12px 3px 12px",
+              background:`${accent}10`,border:`1px dashed ${accentDim}`,
+              fontSize:9,color:`${accent}77`,fontStyle:"italic"}}>
+              "{interim}..."
+            </div>
+          </div>
+        )}
+
+        <div ref={chatEndRef}/>
+      </div>
     </div>
   )
 }

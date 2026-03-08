@@ -5,6 +5,264 @@ import type { Translation } from "@/lib/translations"
 import type { HUDSettings } from "@/lib/types"
 import type { VoiceAction } from "@/app/page"
 import { HealthPanel } from "./health-panel"
+import { VoicePanel } from "./voice-panel"
+
+// ── HOME PANEL — News Feed ─────────────────────────────────────────────────
+interface NewsArticle {
+  id: string
+  title: string
+  summary: string
+  category: string
+  source: string
+  time: string
+  imageGradient: string
+  emoji: string
+  url?: string
+}
+
+// Placeholder news — in production, replace with NewsAPI / RSS feed via /api/news
+function getPlaceholderNews(lang: string): NewsArticle[] {
+  const isId = lang !== "en"
+  return isId ? [
+    { id:"1", title:"Teknologi AI Semakin Canggih di 2025", summary:"Model bahasa generasi terbaru mampu memahami konteks lebih dalam dan berinteraksi lebih natural dengan pengguna sehari-hari.", category:"Teknologi", source:"TechID", time:"5 mnt lalu", imageGradient:"linear-gradient(135deg,#0a2a4a,#1a4a8a)", emoji:"🤖" },
+    { id:"2", title:"Pasar Saham Asia Menguat Pagi Ini", summary:"Bursa efek di kawasan Asia Pasifik mencatat kenaikan di tengah sentimen positif dari data ekonomi Amerika Serikat yang lebih baik.", category:"Ekonomi", source:"BisnisNews", time:"12 mnt lalu", imageGradient:"linear-gradient(135deg,#0a3a1a,#1a6a2a)", emoji:"📈" },
+    { id:"3", title:"Gempa M5.2 Guncang Sulawesi Tengah", summary:"BMKG melaporkan gempa berkekuatan 5.2 SR mengguncang wilayah Palu pukul 07.34 WIB. Warga diminta tetap waspada.", category:"Nasional", source:"BMKG", time:"18 mnt lalu", imageGradient:"linear-gradient(135deg,#3a1a0a,#6a2a0a)", emoji:"🌍" },
+    { id:"4", title:"Timnas Indonesia Menang 2-1 Lawan Vietnam", summary:"Skuad Garuda berhasil mengamankan tiga poin dalam laga kualifikasi Piala Asia di Stadion GBK Jakarta.", category:"Olahraga", source:"SportID", time:"1 jam lalu", imageGradient:"linear-gradient(135deg,#1a0a3a,#3a1a6a)", emoji:"⚽" },
+    { id:"5", title:"BPJS Kesehatan Perluas Layanan Digital", summary:"Peserta BPJS kini bisa mengakses layanan lebih mudah melalui aplikasi Mobile JKN yang diperbarui.", category:"Kesehatan", source:"HealthID", time:"2 jam lalu", imageGradient:"linear-gradient(135deg,#2a0a2a,#4a1a4a)", emoji:"🏥" },
+    { id:"6", title:"Bandara Soekarno-Hatta Ramai Pemudik", summary:"Volume penumpang di Bandara Soetta meningkat 40% jelang akhir pekan panjang. Pengelola imbau datang lebih awal.", category:"Transportasi", source:"AviationID", time:"3 jam lalu", imageGradient:"linear-gradient(135deg,#0a2a3a,#0a4a5a)", emoji:"✈️" },
+  ] : [
+    { id:"1", title:"AI Models Reach New Intelligence Milestone", summary:"The latest generation of language models demonstrates unprecedented reasoning abilities, changing how we interact with technology.", category:"Tech", source:"TechCrunch", time:"5 min ago", imageGradient:"linear-gradient(135deg,#0a2a4a,#1a4a8a)", emoji:"🤖" },
+    { id:"2", title:"Global Markets Rally on Fed Optimism", summary:"Stock markets worldwide surged as investors welcomed signals that interest rate cuts may come sooner than expected.", category:"Finance", source:"Bloomberg", time:"12 min ago", imageGradient:"linear-gradient(135deg,#0a3a1a,#1a6a2a)", emoji:"📈" },
+    { id:"3", title:"Climate Summit Reaches Historic Agreement", summary:"Over 190 countries signed a landmark deal to phase out fossil fuels by 2045, the most ambitious climate pact ever.", category:"World", source:"Reuters", time:"18 min ago", imageGradient:"linear-gradient(135deg,#1a2a0a,#2a4a0a)", emoji:"🌍" },
+    { id:"4", title:"SpaceX Starship Completes 7th Test Flight", summary:"Elon Musk's company successfully landed both the booster and the spacecraft, marking a major milestone in space exploration.", category:"Space", source:"Space.com", time:"1 hr ago", imageGradient:"linear-gradient(135deg,#1a0a3a,#3a1a6a)", emoji:"🚀" },
+    { id:"5", title:"New Study Links Sleep to Brain Health", summary:"Researchers found that 7-9 hours of quality sleep dramatically reduces the risk of cognitive decline in later life.", category:"Health", source:"WebMD", time:"2 hr ago", imageGradient:"linear-gradient(135deg,#2a0a2a,#4a1a4a)", emoji:"🧠" },
+    { id:"6", title:"Electric Vehicle Sales Hit Record High", summary:"Global EV sales crossed 20 million units this quarter, driven by new affordable models from Chinese manufacturers.", category:"Auto", source:"AutoWeek", time:"3 hr ago", imageGradient:"linear-gradient(135deg,#0a2a3a,#0a4a5a)", emoji:"🚗" },
+  ]
+}
+
+function HomePanelNews({accent,accentDim,accentFaint,lang}:{accent:string;accentDim:string;accentFaint:string;lang:string}) {
+  const [news, setNews]           = useState<NewsArticle[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [selected, setSelected]   = useState<NewsArticle|null>(null)
+  const [category, setCategory]   = useState("all")
+  const [fetchingAI, setFetchingAI] = useState(false)
+  const [aiSummary, setAiSummary] = useState("")
+
+  useEffect(()=>{
+    setLoading(true)
+    // Simulate load delay — replace with real API: fetch('/api/news')
+    setTimeout(()=>{ setNews(getPlaceholderNews(lang)); setLoading(false) }, 600)
+  },[lang])
+
+  const categories = lang==="en"
+    ? ["all","Tech","Finance","World","Space","Health","Auto"]
+    : ["all","Teknologi","Ekonomi","Nasional","Olahraga","Kesehatan","Transportasi"]
+
+  const filtered = category==="all" ? news : news.filter(n=>n.category===category)
+
+  const askAI = async (article: NewsArticle) => {
+    setFetchingAI(true); setAiSummary("")
+    try {
+      const prompt = lang==="en"
+        ? `Give a 2-sentence insightful analysis of this news: "${article.title}". What's the impact and what should people know?`
+        : `Berikan analisis 2 kalimat yang insightful tentang berita ini: "${article.title}". Apa dampaknya dan apa yang perlu diketahui?`
+      const res = await fetch("/api/claude-vision",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({prompt, mode:"voice", textOnly:true})
+      })
+      const data = await res.json()
+      setAiSummary(data.result?.replace(/```json|```/g,"").trim() || "")
+    } catch { setAiSummary(lang==="en"?"AI unavailable":"AI tidak tersedia") }
+    setFetchingAI(false)
+  }
+
+  if (selected) return (
+    <div style={{display:"flex",flexDirection:"column",height:"100%",gap:0}}>
+      {/* Article detail */}
+      <div style={{flex:1,overflowY:"auto",padding:"0 2px"}}>
+        <div style={{height:80,borderRadius:8,marginBottom:8,
+          background:selected.imageGradient,
+          display:"flex",alignItems:"center",justifyContent:"center",
+          fontSize:36,position:"relative",overflow:"hidden"}}>
+          <div style={{position:"absolute",inset:0,
+            background:"linear-gradient(to bottom,transparent 40%,rgba(0,0,0,0.6))"}}/>
+          <span style={{position:"relative",zIndex:1}}>{selected.emoji}</span>
+          <div style={{position:"absolute",bottom:6,left:10,right:10,zIndex:1,
+            display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
+            <span style={{fontSize:7,padding:"2px 7px",borderRadius:20,
+              background:`${accent}33`,color:accent,border:`1px solid ${accent}55`}}>
+              {selected.category}
+            </span>
+            <span style={{fontSize:7,color:"#ffffff88"}}>{selected.source} · {selected.time}</span>
+          </div>
+        </div>
+
+        <div style={{fontSize:12,fontWeight:"bold",color:"#e0f0ff",lineHeight:1.5,
+          marginBottom:8,fontFamily:"sans-serif"}}>
+          {selected.title}
+        </div>
+        <div style={{fontSize:10,color:"#9ab",lineHeight:1.7,marginBottom:10}}>
+          {selected.summary}
+        </div>
+
+        {/* AI Analysis */}
+        <div style={{padding:"8px 10px",borderRadius:8,
+          background:`${accent}0c`,border:`1px solid ${accentDim}`,marginBottom:8}}>
+          <div style={{fontSize:8,color:accentDim,letterSpacing:1,marginBottom:6,
+            display:"flex",alignItems:"center",gap:6}}>
+            <span style={{color:accent}}>⬡</span> AI INSIGHT
+          </div>
+          {aiSummary
+            ? <div style={{fontSize:9.5,color:"#d0e8f5",lineHeight:1.7}}>{aiSummary}</div>
+            : fetchingAI
+              ? <div style={{display:"flex",gap:4,alignItems:"center",padding:"4px 0"}}>
+                  {[0,1,2].map(i=>(
+                    <div key={i} style={{width:5,height:5,borderRadius:"50%",
+                      background:accent,opacity:0.6,animation:"bounce 1.2s ease infinite",
+                      animationDelay:`${i*0.2}s`}}/>
+                  ))}
+                </div>
+              : <button onClick={()=>askAI(selected)}
+                  style={{fontSize:8,color:accent,background:"none",border:`1px solid ${accentDim}`,
+                    borderRadius:20,padding:"3px 10px",cursor:"pointer",letterSpacing:0.5}}>
+                  ✦ Minta analisis AI
+                </button>
+          }
+        </div>
+      </div>
+
+      <div style={{display:"flex",gap:5,flexShrink:0,paddingTop:6,
+        borderTop:`1px solid ${accentDim}`}}>
+        <button onClick={()=>{setSelected(null);setAiSummary("")}}
+          style={{flex:1,padding:"6px",borderRadius:6,cursor:"pointer",
+            border:`1px solid ${accentDim}`,background:accentFaint,
+            color:accentDim,fontSize:9,fontFamily:"monospace"}}>
+          ← KEMBALI
+        </button>
+        {!aiSummary&&!fetchingAI&&(
+          <button onClick={()=>askAI(selected)}
+            style={{flex:2,padding:"6px",borderRadius:6,cursor:"pointer",
+              border:`1px solid ${accent}`,background:`${accent}18`,
+              color:accent,fontSize:9,fontFamily:"monospace",letterSpacing:1}}>
+            ⬡ ANALISIS AI
+          </button>
+        )}
+      </div>
+    </div>
+  )
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:"100%",gap:0}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:0,
+        marginBottom:6,flexShrink:0}}>
+        <div style={{flex:1}}>
+          <div style={{fontSize:11,fontWeight:"bold",color:accent,letterSpacing:0.5}}>
+            {lang==="en"?"Today's News":"Berita Hari Ini"}
+          </div>
+          <div style={{fontSize:7.5,color:accentDim}}>
+            {lang==="en"?"Personalized feed · powered by V-Optics AI":"Feed personal · bertenaga V-Optics AI"}
+          </div>
+        </div>
+        <div style={{fontSize:8,color:accentDim,letterSpacing:0.5}}>
+          {new Date().toLocaleDateString(lang==="en"?"en-US":"id-ID",
+            {weekday:"short",month:"short",day:"numeric"})}
+        </div>
+      </div>
+
+      {/* Category pills */}
+      <div style={{display:"flex",gap:4,overflowX:"auto",marginBottom:7,
+        paddingBottom:3,flexShrink:0,
+        scrollbarWidth:"none"}}>
+        {categories.map(c=>(
+          <div key={c} onClick={()=>setCategory(c)}
+            style={{padding:"3px 10px",borderRadius:20,fontSize:7.5,
+              whiteSpace:"nowrap",cursor:"pointer",transition:"all 0.15s",letterSpacing:0.3,
+              background:category===c?`${accent}22`:accentFaint,
+              border:`1px solid ${category===c?accent:accentDim}`,
+              color:category===c?accent:accentDim}}>
+            {c==="all"?(lang==="en"?"All":"Semua"):c}
+          </div>
+        ))}
+      </div>
+
+      {/* News grid */}
+      <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,minHeight:0}}>
+        {loading ? (
+          <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            <div style={{width:16,height:16,border:`2px solid ${accent}`,
+              borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+            <span style={{fontSize:9,color:accentDim,letterSpacing:1}}>LOADING...</span>
+          </div>
+        ) : (
+          <>
+            {/* Featured card (first item — big) */}
+            {filtered[0]&&(
+              <div onClick={()=>setSelected(filtered[0])}
+                style={{borderRadius:8,overflow:"hidden",cursor:"pointer",flexShrink:0,
+                  border:`1px solid ${accentDim}`,transition:"all 0.2s",
+                  background:filtered[0].imageGradient,position:"relative",height:90}}
+                onMouseEnter={e=>e.currentTarget.style.borderColor=accent}
+                onMouseLeave={e=>e.currentTarget.style.borderColor=accentDim}>
+                <div style={{position:"absolute",inset:0,
+                  background:"linear-gradient(to bottom,transparent 20%,rgba(0,0,0,0.75))"}}/>
+                <div style={{position:"absolute",top:8,left:10,fontSize:22}}>{filtered[0].emoji}</div>
+                <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"8px 10px"}}>
+                  <div style={{fontSize:7,color:accent,letterSpacing:0.5,marginBottom:3}}>
+                    ★ {lang==="en"?"TOP STORY":"BERITA UTAMA"} · {filtered[0].category}
+                  </div>
+                  <div style={{fontSize:10,color:"#fff",fontWeight:"bold",lineHeight:1.4,
+                    overflow:"hidden",display:"-webkit-box",
+                    WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
+                    {filtered[0].title}
+                  </div>
+                  <div style={{fontSize:7.5,color:"#ffffff88",marginTop:3}}>
+                    {filtered[0].source} · {filtered[0].time}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Small cards grid (rest) */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
+              {filtered.slice(1).map(article=>(
+                <div key={article.id} onClick={()=>setSelected(article)}
+                  style={{borderRadius:7,overflow:"hidden",cursor:"pointer",
+                    border:`1px solid ${accentDim}`,transition:"all 0.2s",
+                    background:"rgba(255,255,255,0.02)",display:"flex",flexDirection:"column"}}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor=accent}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor=accentDim}>
+                  {/* Image area */}
+                  <div style={{height:44,background:article.imageGradient,
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    fontSize:20,position:"relative",flexShrink:0}}>
+                    {article.emoji}
+                    <div style={{position:"absolute",top:3,right:4,fontSize:6.5,
+                      padding:"1px 5px",borderRadius:20,
+                      background:`${accent}22`,color:accent,border:`1px solid ${accent}44`}}>
+                      {article.category}
+                    </div>
+                  </div>
+                  {/* Text */}
+                  <div style={{padding:"5px 6px",flex:1}}>
+                    <div style={{fontSize:8.5,color:"#d0e8f5",lineHeight:1.4,fontWeight:"bold",
+                      overflow:"hidden",display:"-webkit-box",
+                      WebkitLineClamp:2,WebkitBoxOrient:"vertical",marginBottom:3}}>
+                      {article.title}
+                    </div>
+                    <div style={{fontSize:7,color:accentDim}}>
+                      {article.source} · {article.time}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
 
 interface HUDSimulatorProps {
   settings: HUDSettings
@@ -463,8 +721,9 @@ function useBattery() {
 // ── REAL NOTIFS HOOK ──────────────────────────────────────────────────────────
 function useRealNotifs(coords: {lat:number;lng:number}|null) {
   const [notifs, setNotifs] = useState<RealNotif[]>([])
+  const counterRef = useRef(0)
   const addNotif = useCallback((n: Omit<RealNotif,"id"|"time">) => {
-    const id = Date.now().toString()
+    const id = `notif_${Date.now()}_${++counterRef.current}`
     const time = new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"})
     setNotifs(prev => [{...n,id,time},...prev.slice(0,7)])
   }, [])
@@ -1088,70 +1347,309 @@ Balas HANYA dalam format JSON ini (tanpa markdown, tanpa teks lain):
 
 // ── AI PANEL ──────────────────────────────────────────────────────────────────
 function AIPanel({accent,accentDim,accentFaint,lang}:{accent:string;accentDim:string;accentFaint:string;lang:string}) {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [cameraOn, setCameraOn] = useState(false)
+  const videoRef   = useRef<HTMLVideoElement>(null)
+  const canvasRef  = useRef<HTMLCanvasElement>(null)
+  const [cameraOn,  setCameraOn]  = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
-  const [aiText, setAiText] = useState("")
-  const [typedText, setTypedText] = useState("")
-  const [status, setStatus] = useState("")
-  const streamRef = useRef<MediaStream|null>(null)
+  const [status,    setStatus]    = useState<"idle"|"capturing"|"analyzing"|"done"|"error">("idle")
+  const [chatLog,   setChatLog]   = useState<{role:"user"|"ai",text:string,ts:string}[]>([])
+  const [prompt,    setPrompt]    = useState("")
+  const streamRef  = useRef<MediaStream|null>(null)
+  const chatEndRef = useRef<HTMLDivElement>(null)
+
+  const ts = () => new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"})
 
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:1280},height:{ideal:720}}})
-      streamRef.current=stream
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video:{facingMode:"environment",width:{ideal:1280},height:{ideal:720}}
+      })
+      streamRef.current = stream
       if (videoRef.current) { videoRef.current.srcObject=stream; videoRef.current.play() }
-      setCameraOn(true); setStatus(lang==="en"?"Camera active. Press Analyze.":"Kamera aktif. Tekan Analisis.")
-    } catch { setStatus("⚠ "+(lang==="en"?"Camera access denied":"Akses kamera ditolak")) }
+      setCameraOn(true); setStatus("idle")
+    } catch { setStatus("error") }
   }
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach(t=>t.stop())
-    setCameraOn(false); setAiText(""); setTypedText(""); setStatus("")
+    setCameraOn(false); setStatus("idle")
   }
-  useEffect(()=>{
-    if (!aiText) { setTypedText(""); return }
-    let i=0; setTypedText("")
-    const iv=setInterval(()=>{ setTypedText(aiText.slice(0,i+1)); i++; if(i>=aiText.length) clearInterval(iv) },20)
-    return ()=>clearInterval(iv)
-  },[aiText])
-  const analyzeFrame = async () => {
-    if (!videoRef.current||!canvasRef.current) return
-    setAnalyzing(true); setStatus(lang==="en"?"Capturing frame...":"Mengambil gambar...")
-    const canvas=canvasRef.current; const ctx=canvas.getContext("2d")!
-    canvas.width=videoRef.current.videoWidth||640; canvas.height=videoRef.current.videoHeight||480
-    ctx.drawImage(videoRef.current,0,0)
-    const base64=canvas.toDataURL("image/jpeg",0.6).split(",")[1]
-    setStatus(lang==="en"?"Sending to AI...":"Mengirim ke AI...")
+  useEffect(()=>()=>{ streamRef.current?.getTracks().forEach(t=>t.stop()) },[])
+  useEffect(()=>{ chatEndRef.current?.scrollIntoView({behavior:"smooth"}) },[chatLog,analyzing])
+
+  const analyze = async (customPrompt?: string) => {
+    if (!videoRef.current||!canvasRef.current||analyzing) return
+    const userQ = customPrompt || prompt.trim() || (lang==="en"?"Analyze what you see":"Analisis apa yang terlihat")
+    setAnalyzing(true); setStatus("capturing")
+    setPrompt("")
+
+    const canvas=canvasRef.current
+    canvas.width=videoRef.current.videoWidth||640
+    canvas.height=videoRef.current.videoHeight||480
+    canvas.getContext("2d")!.drawImage(videoRef.current,0,0)
+    const base64=canvas.toDataURL("image/jpeg",0.65).split(",")[1]
+
+    setChatLog(prev=>[...prev,{role:"user",text:userQ,ts:ts()}])
+    setStatus("analyzing")
+
     try {
-      const prompt=lang==="en"
-        ?"You are V-Optics AI assistant in smart glasses. Analyze this camera frame: 1) What you see 2) Important info for the wearer 3) Safety concerns. Max 3 sentences."
-        :"Kamu adalah asisten AI V-Optics di kacamata pintar. Analisis frame kamera: 1) Apa yang terlihat 2) Info penting untuk pengguna 3) Potensi bahaya. Maksimal 3 kalimat."
-      const res=await fetch("/api/claude-vision",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:base64,prompt})})
+      const sysPrompt = lang==="en"
+        ? `You are V-Optics Vision AI embedded in smart glasses. The user is looking through their camera.
+Be concise, warm, and useful. Structure your response naturally — no bullet lists, just flowing prose.
+Focus on: what's visible, any important details the wearer should know, and answer their specific question.
+Max 3 sentences unless a detailed explanation is requested.`
+        : `Kamu adalah V-Optics Vision AI yang tertanam di kacamata pintar. Pengguna sedang melihat melalui kamera mereka.
+Bersikaplah ringkas, hangat, dan berguna. Tulis responsmu secara alami — bukan daftar poin, tapi kalimat mengalir.
+Fokus pada: apa yang terlihat, detail penting yang perlu diketahui pengguna, dan jawab pertanyaan spesifik mereka.
+Maksimal 3 kalimat kecuali penjelasan detail diminta.`
+
+      const res = await fetch("/api/claude-vision",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({image:base64, prompt:`${sysPrompt}\n\nUser: ${userQ}`})
+      })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data=await res.json()
-      setAiText(data.result||(lang==="en"?"No response.":"Tidak ada respons."))
-      setStatus(lang==="en"?"Analysis complete":"Analisis selesai")
+      const data = await res.json()
+      const reply = data.result || (lang==="en"?"No response.":"Tidak ada respons.")
+      setChatLog(prev=>[...prev,{role:"ai",text:reply,ts:ts()}])
+      setStatus("done")
     } catch {
-      setStatus("⚠ API error"); setAiText(lang==="en"?"Check /api/claude-vision route.":"Cek route /api/claude-vision.")
+      setChatLog(prev=>[...prev,{role:"ai",text:lang==="en"?"⚠ Could not reach AI. Check API.":"⚠ Gagal menghubungi AI. Cek API.",ts:ts()}])
+      setStatus("error")
     }
     setAnalyzing(false)
   }
-  useEffect(()=>()=>{ streamRef.current?.getTracks().forEach(t=>t.stop()) },[])
-  const quickCmds=lang==="en"?["What is around me?","Is it safe here?","Read this text","Describe the scene"]:["Apa yang ada di sekitarku?","Apakah ini aman?","Baca teks ini","Deskripsikan pemandangan"]
+
+  const quickPrompts = lang==="en"
+    ? ["What's in front of me?","Is it safe?","Read any text","Who's around?","Describe the scene"]
+    : ["Apa yang ada di depanku?","Apakah aman?","Bacakan teks ini","Siapa di sekitar?","Deskripsikan pemandangan"]
 
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:8,height:"100%"}}>
-      <div style={{flex:1,position:"relative",borderRadius:6,overflow:"hidden",border:`1px solid ${accentDim}`,background:"#000",minHeight:0}}>
-        <video ref={videoRef} style={{width:"100%",height:"100%",objectFit:"cover",display:cameraOn?"block":"none"}} muted playsInline/>
-        {!cameraOn&&(<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6}}><div style={{width:40,height:40,borderRadius:"50%",border:`2px solid ${accentDim}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,animation:"orbPulse 2s ease-in-out infinite",color:accent}}>⬡</div><div style={{color:accentDim,fontSize:9,letterSpacing:1,textAlign:"center",padding:"0 8px"}}>{lang==="en"?"Enable camera for AI vision":"Aktifkan kamera untuk analisis AI"}</div></div>)}
-        {analyzing&&(<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{color:accent,fontSize:9,letterSpacing:2,textAlign:"center"}}><div style={{width:24,height:24,border:`2px solid ${accent}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite",margin:"0 auto 8px"}}/>{lang==="en"?"ANALYZING...":"MENGANALISIS..."}</div></div>)}
-        <canvas ref={canvasRef} style={{display:"none"}}/>
+    <div style={{display:"flex",height:"100%",gap:8,minHeight:0}}>
+
+      {/* LEFT — Camera feed */}
+      <div style={{width:"45%",display:"flex",flexDirection:"column",gap:6,flexShrink:0}}>
+        {/* Viewfinder */}
+        <div style={{flex:1,position:"relative",borderRadius:8,overflow:"hidden",
+          border:`1.5px solid ${status==="analyzing"?accent:status==="error"?"#f55":accentDim}`,
+          background:"#000",minHeight:0,transition:"border-color 0.3s"}}>
+          <video ref={videoRef} style={{width:"100%",height:"100%",objectFit:"cover",
+            display:cameraOn?"block":"none"}} muted playsInline/>
+          <canvas ref={canvasRef} style={{display:"none"}}/>
+
+          {/* Offline placeholder */}
+          {!cameraOn&&(
+            <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",
+              alignItems:"center",justifyContent:"center",gap:10,
+              background:"linear-gradient(180deg,#040d1a,#081828)"}}>
+              <div style={{width:44,height:44,borderRadius:"50%",
+                border:`1.5px solid ${accentDim}`,display:"flex",alignItems:"center",
+                justifyContent:"center",fontSize:20,color:accentDim,
+                animation:"orbPulse 3s ease-in-out infinite"}}>⬡</div>
+              <div style={{fontSize:9,color:accentDim,letterSpacing:1,textAlign:"center",
+                lineHeight:1.7}}>
+                {lang==="en"?"AI Vision\noffline":"AI Vision\nnonaktif"}
+              </div>
+            </div>
+          )}
+
+          {/* Scanning overlay */}
+          {analyzing&&(
+            <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.45)",
+              display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}>
+              <div style={{width:28,height:28,border:`2px solid ${accent}`,
+                borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>
+              <div style={{fontSize:8,color:accent,letterSpacing:2}}>
+                {status==="capturing"?"CAPTURING":"ANALYZING"}
+              </div>
+            </div>
+          )}
+
+          {/* Corner brackets */}
+          {cameraOn&&!analyzing&&[
+            {top:6,left:6,bt:"top",bl:"left"},{top:6,right:6,bt:"top",bl:"right"},
+            {bottom:6,left:6,bt:"bottom",bl:"left"},{bottom:6,right:6,bt:"bottom",bl:"right"},
+          ].map((c,i)=>(
+            <div key={i} style={{position:"absolute",...c,width:12,height:12,
+              borderTop:c.bt==="top"?`1.5px solid ${accent}`:"none",
+              borderBottom:c.bt==="bottom"?`1.5px solid ${accent}`:"none",
+              borderLeft:c.bl==="left"?`1.5px solid ${accent}`:"none",
+              borderRight:c.bl==="right"?`1.5px solid ${accent}`:"none",
+              opacity:0.7}}/>
+          ))}
+
+          {/* Status pill */}
+          {cameraOn&&(
+            <div style={{position:"absolute",top:6,left:"50%",transform:"translateX(-50%)",
+              padding:"2px 8px",borderRadius:20,fontSize:7,letterSpacing:1,
+              background:"rgba(0,0,0,0.6)",border:`1px solid ${accentDim}`,
+              color:status==="done"?accent:status==="error"?"#f55":accentDim}}>
+              {status==="idle"?"● LIVE"
+                :status==="capturing"?"◌ CAPTURE"
+                :status==="analyzing"?"⟳ AI"
+                :status==="done"?"✓ DONE"
+                :"⚠ ERR"}
+            </div>
+          )}
+        </div>
+
+        {/* Camera controls */}
+        {!cameraOn
+          ? <button onClick={startCamera}
+              style={{padding:"8px",borderRadius:6,border:`1px solid ${accentDim}`,
+                background:accentFaint,color:accent,fontSize:9,letterSpacing:1.5,
+                cursor:"pointer",fontFamily:"monospace",transition:"all 0.2s"}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=accent;e.currentTarget.style.background=`${accent}18`}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=accentDim;e.currentTarget.style.background=accentFaint}}>
+              ⬡ AKTIFKAN KAMERA
+            </button>
+          : <div style={{display:"flex",gap:4}}>
+              <button onClick={()=>analyze()} disabled={analyzing}
+                style={{flex:2,padding:"7px",borderRadius:6,cursor:analyzing?"not-allowed":"pointer",
+                  border:`1px solid ${analyzing?accentDim:accent}`,
+                  background:analyzing?accentFaint:`${accent}18`,
+                  color:analyzing?accentDim:accent,fontSize:9,letterSpacing:1,fontFamily:"monospace",
+                  transition:"all 0.2s"}}>
+                {analyzing?"⟳ AI...":"⬡ ANALISIS"}
+              </button>
+              <button onClick={stopCamera}
+                style={{flex:1,padding:"7px",borderRadius:6,cursor:"pointer",
+                  border:"1px solid rgba(255,80,80,0.4)",background:"rgba(255,60,60,0.07)",
+                  color:"#f66",fontSize:9,fontFamily:"monospace"}}>
+                STOP
+              </button>
+            </div>
+        }
+
+        {/* Quick prompts */}
+        <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+          {quickPrompts.map(q=>(
+            <div key={q} onClick={()=>cameraOn&&analyze(q)}
+              style={{padding:"3px 8px",borderRadius:20,fontSize:7.5,letterSpacing:0.3,
+                border:`1px solid ${cameraOn?accentDim:"#333"}`,
+                background:cameraOn?accentFaint:"transparent",
+                color:cameraOn?`${accent}88`:"#444",
+                cursor:cameraOn?"pointer":"default",transition:"all 0.15s"}}
+              onMouseEnter={e=>{if(cameraOn)e.currentTarget.style.background=`${accent}20`}}
+              onMouseLeave={e=>{e.currentTarget.style.background=cameraOn?accentFaint:"transparent"}}>
+              {q}
+            </div>
+          ))}
+        </div>
       </div>
-      {(typedText||status)&&(<div style={{padding:"8px 10px",border:`1px solid ${accentDim}`,borderRadius:6,background:accentFaint}}>{status&&<div style={{fontSize:8,color:accentDim,letterSpacing:1,marginBottom:4}}>{status}</div>}{typedText&&<div style={{fontSize:10,color:accent,lineHeight:1.6}}><span style={{color:accentDim,marginRight:6}}>AI&gt;</span>{typedText}{analyzing&&<span style={{animation:"blink 0.8s infinite"}}>▌</span>}</div>}</div>)}
-      <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{quickCmds.map(cmd=>(<div key={cmd} onClick={()=>cameraOn&&analyzeFrame()} style={{padding:"3px 8px",border:`1px solid ${accentDim}`,borderRadius:20,color:`${accent}88`,fontSize:8,cursor:cameraOn?"pointer":"default",background:accentFaint,letterSpacing:0.5}}>{cmd}</div>))}</div>
-      <div style={{display:"flex",gap:6}}>
-        {!cameraOn?(<button onClick={startCamera} style={{flex:1,padding:"7px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:2,background:accentFaint,border:`1px solid ${accentDim}`,color:accent,borderRadius:4,cursor:"pointer"}}>⬡ AKTIFKAN AI VISION</button>):(<><button onClick={analyzeFrame} disabled={analyzing} style={{flex:2,padding:"7px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,letterSpacing:2,background:analyzing?`${accent}11`:accentFaint,border:`1px solid ${analyzing?accentDim:accent}`,color:analyzing?accentDim:accent,borderRadius:4,cursor:analyzing?"not-allowed":"pointer"}}>{analyzing?"⏳ MENGANALISIS...":"⬡ ANALISIS FRAME"}</button><button onClick={stopCamera} style={{flex:1,padding:"7px",fontFamily:"'Share Tech Mono',monospace",fontSize:9,background:"rgba(255,60,60,0.08)",border:"1px solid rgba(255,60,60,0.3)",color:"#f66",borderRadius:4,cursor:"pointer"}}>STOP</button></>)}
+
+      {/* RIGHT — Chat log */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",gap:0,minWidth:0}}>
+        {/* Header */}
+        <div style={{padding:"4px 8px",borderBottom:`1px solid ${accentDim}`,flexShrink:0,
+          display:"flex",alignItems:"center",gap:6}}>
+          <div style={{width:18,height:18,borderRadius:"50%",background:`${accent}20`,
+            border:`1px solid ${accentDim}`,display:"flex",alignItems:"center",
+            justifyContent:"center",fontSize:9}}>⬡</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:9,color:accent,fontWeight:"bold",letterSpacing:0.5}}>Vision AI</div>
+            <div style={{fontSize:7,color:accentDim}}>
+              {cameraOn
+                ?(analyzing?"menganalisis...":"siap menganalisis")
+                :"kamera mati"}
+            </div>
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div style={{flex:1,overflowY:"auto",padding:"8px 6px",
+          display:"flex",flexDirection:"column",gap:7,minHeight:0}}>
+
+          {chatLog.length===0&&(
+            <div style={{flex:1,display:"flex",flexDirection:"column",
+              alignItems:"center",justifyContent:"center",gap:8,
+              color:accentDim,fontSize:9,textAlign:"center",lineHeight:1.8}}>
+              <div style={{fontSize:22,opacity:0.3}}>⬡</div>
+              {lang==="en"
+                ?"Point your camera and\npress Analyze or ask a question"
+                :"Arahkan kamera lalu\ntekan Analisis atau tanyakan sesuatu"}
+            </div>
+          )}
+
+          {chatLog.map((msg,i)=>(
+            <div key={i} style={{
+              display:"flex",
+              flexDirection:msg.role==="user"?"row-reverse":"row",
+              alignItems:"flex-end",gap:4}}>
+              {msg.role==="ai"&&(
+                <div style={{width:16,height:16,borderRadius:"50%",flexShrink:0,
+                  background:`${accent}20`,border:`1px solid ${accentDim}`,
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:7,marginBottom:2}}>⬡</div>
+              )}
+              <div style={{maxWidth:"88%",display:"flex",flexDirection:"column",
+                alignItems:msg.role==="user"?"flex-end":"flex-start",gap:2}}>
+                <div style={{
+                  padding:"6px 9px",
+                  borderRadius:msg.role==="user"?"11px 11px 2px 11px":"11px 11px 11px 2px",
+                  background:msg.role==="user"
+                    ?`linear-gradient(135deg,${accent}28,${accent}14)`
+                    :"rgba(255,255,255,0.04)",
+                  border:`1px solid ${msg.role==="user"?accentDim:`${accent}18`}`,
+                }}>
+                  <div style={{fontSize:9.5,lineHeight:1.65,
+                    color:msg.role==="user"?accent:"#d0e8f5",
+                    whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+                    {msg.text}
+                  </div>
+                </div>
+                <div style={{fontSize:7,color:`${accentDim}`,
+                  paddingLeft:msg.role==="user"?0:4,
+                  paddingRight:msg.role==="user"?4:0}}>
+                  {msg.role==="ai"?"Vision AI":"Kamu"} · {msg.ts}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Typing indicator */}
+          {analyzing&&chatLog.length>0&&(
+            <div style={{display:"flex",alignItems:"flex-end",gap:4}}>
+              <div style={{width:16,height:16,borderRadius:"50%",
+                background:`${accent}20`,border:`1px solid ${accentDim}`,
+                display:"flex",alignItems:"center",justifyContent:"center",fontSize:7}}>⬡</div>
+              <div style={{padding:"7px 10px",borderRadius:"11px 11px 11px 2px",
+                background:"rgba(255,255,255,0.04)",border:`1px solid ${accent}18`}}>
+                <div style={{display:"flex",gap:3,alignItems:"center"}}>
+                  {[0,1,2].map(j=>(
+                    <div key={j} style={{width:4,height:4,borderRadius:"50%",
+                      background:accent,opacity:0.6,
+                      animation:"bounce 1.2s ease infinite",
+                      animationDelay:`${j*0.2}s`}}/>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          <div ref={chatEndRef}/>
+        </div>
+
+        {/* Input box */}
+        {cameraOn&&(
+          <div style={{padding:"6px 6px 4px",borderTop:`1px solid ${accentDim}`,flexShrink:0}}>
+            <div style={{display:"flex",gap:4,alignItems:"center"}}>
+              <input
+                value={prompt}
+                onChange={e=>setPrompt(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&!analyzing&&analyze()}
+                placeholder={lang==="en"?"Ask about what you see...":"Tanya tentang yang terlihat..."}
+                style={{flex:1,padding:"5px 8px",borderRadius:6,fontSize:9,
+                  background:"rgba(255,255,255,0.04)",
+                  border:`1px solid ${accentDim}`,color:"#cde",
+                  outline:"none",fontFamily:"monospace"}}/>
+              <button onClick={()=>analyze()} disabled={analyzing}
+                style={{padding:"5px 10px",borderRadius:6,cursor:analyzing?"not-allowed":"pointer",
+                  border:`1px solid ${analyzing?accentDim:accent}`,
+                  background:analyzing?accentFaint:`${accent}18`,
+                  color:analyzing?accentDim:accent,fontSize:9,fontFamily:"monospace"}}>
+                ➤
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1510,7 +2008,7 @@ Aturan:
 export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, setActiveFeature: setActiveFeatureProp, voiceAction, onVoiceActionDone }: HUDSimulatorProps) {
   const [time, setTime] = useState(new Date())
   const [scanLine, setScanLine] = useState(0)
-  const [internalFeature, setInternalFeature] = useState("nav")
+  const [internalFeature, setInternalFeature] = useState("home")
 
   // Gunakan controlled (dari voice) atau internal state
   const activeFeature = activeFeatureProp ?? internalFeature
@@ -1518,6 +2016,15 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
     setInternalFeature(f)
     setActiveFeatureProp?.(f)
   }
+
+  // Kalau active tab di-disable lewat settings, fallback ke home
+  useEffect(()=>{
+    const match = allTabs.find(t=>t.id===activeFeature)
+    if (match?.settingKey && (settings as any)?.[match.settingKey] === false) {
+      setActiveFeature("home")
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[settings])
 
   const {coords,address,accuracy,error:gpsError,loading:gpsLoading,nearby,loadingNearby,destination,setDestination,searchQuery,setSearchQuery,searchNearbyByQuery,activeSearchRef} = useGPS()
   const notifs  = useRealNotifs(coords)
@@ -1560,20 +2067,45 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
   const lang        = settings?.language ?? "id"
 
   useEffect(()=>{ const i=setInterval(()=>setTime(new Date()),1000); return()=>clearInterval(i) },[])
+
+  // Inject global CSS keyframes
+  useEffect(()=>{
+    const id = "v-optics-keyframes"
+    if (document.getElementById(id)) return
+    const s = document.createElement("style"); s.id = id
+    s.textContent = `
+      @keyframes bounce { 0%,80%,100%{transform:translateY(0);opacity:0.6} 40%{transform:translateY(-5px);opacity:1} }
+      @keyframes ripple { 0%{transform:scale(1);opacity:0.6} 100%{transform:scale(1.8);opacity:0} }
+      @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+      @keyframes blink  { 0%,100%{opacity:1} 50%{opacity:0} }
+      @keyframes orbPulse { 0%,100%{opacity:0.4;transform:scale(1)} 50%{opacity:0.9;transform:scale(1.08)} }
+      @keyframes spin   { to{transform:rotate(360deg)} }
+      @keyframes pulse  { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    `
+    document.head.appendChild(s)
+  },[])
   useEffect(()=>{ const i=setInterval(()=>setScanLine(p=>(p+1)%100),28); return()=>clearInterval(i) },[])
 
   const fmt=(n:number)=>String(n).padStart(2,"0")
   const timeStr=`${fmt(time.getHours())}:${fmt(time.getMinutes())}:${fmt(time.getSeconds())}`
 
-  const tabs=[
-    {id:"nav",label:t.tabNav,icon:"◈"},{id:"notify",label:t.tabNotif,icon:"◉"},
-    {id:"translate",label:t.tabTranslate,icon:"◆"},{id:"ai",label:t.tabAI,icon:"⬡"},
-    {id:"health",label:t.tabHealth,icon:"♥"},{id:"detect",label:t.tabDetect,icon:"⬢"},
+  const allTabs=[
+    {id:"home",  label:"Beranda",          icon:"⌂",  settingKey:null as null|string},
+    {id:"nav",   label:t.tabNav,           icon:"◈",  settingKey:"navigation"},
+    {id:"notify",label:t.tabNotif,         icon:"◉",  settingKey:"notifications"},
+    {id:"translate",label:t.tabTranslate,  icon:"◆",  settingKey:"translation"},
+    {id:"ai",    label:t.tabAI,            icon:"⬡",  settingKey:null},
+    {id:"health",label:t.tabHealth,        icon:"♥",  settingKey:"healthMonitor"},
+    {id:"detect",label:t.tabDetect,        icon:"⬢",  settingKey:"objectDetect"},
+    {id:"voice", label:"Chat AI",          icon:"◍",  settingKey:"voiceControl"},
   ]
+  const tabs = allTabs.filter(tab =>
+    tab.settingKey === null || (settings as any)?.[tab.settingKey] !== false
+  )
 
   return (
     <div className="relative w-full max-w-205 overflow-hidden font-mono"
-      style={{aspectRatio:"16/9",background:"linear-gradient(135deg,#04080f 0%,#0a1628 50%,#060c18 100%)",borderRadius:16,border:`1px solid ${accentDim}`,boxShadow:`0 0 60px ${accentFaint},inset 0 0 80px rgba(0,0,0,0.13)`,filter:`brightness(${settings?.brightness??80}%)`}}>
+      style={{aspectRatio:"16/9",background:"linear-gradient(135deg,#04080f 0%,#0a1628 50%,#060c18 100%)",borderRadius:16,border:`1px solid ${accentDim}`,boxShadow:`0 0 60px ${accentFaint},inset 0 0 80px rgba(0,0,0,0.13)`,filter:`brightness(${settings?.nightMode ? Math.min(settings?.brightness??80, 55) : settings?.brightness??80}%) ${settings?.nightMode ? "sepia(0.15)" : ""}`}}>
       <div className="absolute inset-0 pointer-events-none z-10" style={{background:`linear-gradient(transparent ${scanLine-1}%,rgba(0,255,255,0.025) ${scanLine}%,transparent ${scanLine+1}%)`}}/>
       <div className="absolute inset-0 pointer-events-none z-10" style={{background:"radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,0.75) 100%)"}}/>
       <div className="absolute inset-0 pointer-events-none" style={{opacity:0.035,backgroundImage:`linear-gradient(${accent} 1px,transparent 1px),linear-gradient(90deg,${accent} 1px,transparent 1px)`,backgroundSize:"40px 40px"}}/>
@@ -1606,8 +2138,16 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
           {tabs.map(tab=>(
             <button key={tab.id} onClick={()=>setActiveFeature(tab.id)}
               className="flex-1 font-mono text-[8px] tracking-[0.5px] cursor-pointer transition-all duration-200"
-              style={{padding:"6px 2px",background:activeFeature===tab.id?`${accent}1a`:"transparent",border:"none",borderRight:`1px solid ${accentDim}`,color:activeFeature===tab.id?accent:`${accent}55`,textShadow:activeFeature===tab.id?`0 0 6px ${accent}`:"none"}}>
-              <div className="text-[11px]">{tab.icon}</div>{tab.label}
+              style={{
+                padding:"6px 2px",border:"none",
+                borderRight:`1px solid ${accentDim}`,
+                background:activeFeature===tab.id?`${accent}1a`:"transparent",
+                color:activeFeature===tab.id?accent:`${accent}55`,
+                textShadow:activeFeature===tab.id?`0 0 6px ${accent}`:"none",
+                transition:"all 0.2s",
+              }}>
+              <div style={{fontSize:11}}>{tab.icon}</div>
+              <div style={{fontSize:7,marginTop:1,letterSpacing:0.3}}>{tab.label}</div>
             </button>
           ))}
         </div>
@@ -1730,6 +2270,11 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
           </div>
         )}
 
+        {activeFeature==="home"&&<HomePanelNews accent={accent} accentDim={accentDim} accentFaint={accentFaint} lang={lang}/>}
+        {activeFeature==="voice"&&<VoicePanel t={t} accent={accent} onAction={(action)=>{
+          if(action.type==="navigate") setActiveFeature((action as any).feature)
+          else if(action.type==="search_nearby") { setActiveFeature("nav"); if(coords) searchNearbyByQuery((action as any).query??"",coords.lat,coords.lng) }
+        }}/>}
         {activeFeature==="translate"&&<TranslatePanel accent={accent} accentDim={accentDim} accentFaint={accentFaint} targetLang={lang}/>}
         {activeFeature==="ai"&&<AIPanel accent={accent} accentDim={accentDim} accentFaint={accentFaint} lang={lang}/>}
         {activeFeature==="health"&&<HealthPanel t={t}/>}
