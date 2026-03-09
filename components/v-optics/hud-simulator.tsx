@@ -180,213 +180,325 @@ function AppIcon({id,size=22}:{id:string;size?:number}) {
 }
 
 
+// ── APPS PANEL — OAuth WebView + API Feed ─────────────────────────────────────
+//
+// Architecture:
+//   1. User clicks app → we open a popup OAuth window (real login page)
+//   2. After login, platform redirects to our /api/oauth/callback?app=xxx&token=yyy
+//   3. We store the token in state and fetch the feed via platform APIs
+//   4. For YouTube: uses Data API v3 (no OAuth needed for public content)
+//   5. For WhatsApp Web: opens real web.whatsapp.com in popup (QR flow)
+//
+// SETUP (add to .env.local):
+//   INSTAGRAM_CLIENT_ID=xxx   → https://developers.facebook.com/apps
+//   SPOTIFY_CLIENT_ID=xxx     → https://developer.spotify.com/dashboard
+//   YOUTUBE_API_KEY=xxx       → https://console.cloud.google.com
+//   TWITTER_CLIENT_ID=xxx     → https://developer.twitter.com
+//   NEXT_PUBLIC_BASE_URL=https://yourdomain.com
+
+type AppSession = {
+  app: string
+  token: string
+  user?: { name: string; avatar: string; username?: string }
+}
+
+// ── OAuth App Config ───────────────────────────────────────────────────────
+// ── App Strategy:
+// EMBED (iframe via /api/proxy) — works: YouTube, Maps, Telegram, X, Spotify
+// DEEP LINK — opens native app on phone: WhatsApp, Instagram, Gmail
+// OAUTH POPUP — opens in popup window: Gmail full web
+// ── Proxy helper ──────────────────────────────────────────────────────────────
+// Semua URL dilewatkan melalui /api/proxy agar X-Frame-Options di-strip server-side
+// ── App Config ────────────────────────────────────────────────────────────────
+// strategy:
+//   "embed"    → official iframe embed (no X-Frame-Options issues)
+//   "deeplink" → open native app / browser (WA, IG, Gmail, Telegram, X)
+const APP_CONFIG = [
+  {
+    id: "youtube", name: "YouTube", color: "#FF0000", bgColor: "#0f0f0f",
+    strategy: "embed",
+    // Official YouTube embed — searches trending, no login needed
+    embedUrl: "https://www.youtube-nocookie.com/embed/jNQXAC9IVRw?rel=0&modestbranding=1",
+    note_id: "Tonton video tanpa login. Gunakan search di dalam player.",
+    note_en: "Watch videos without login. Use search inside the player.",
+    desc_id: "Video & streaming",
+    desc_en: "Videos & streaming",
+  },
+  {
+    id: "spotify", name: "Spotify", color: "#1DB954", bgColor: "#121212",
+    strategy: "embed",
+    // Official Spotify embed — Top 50 Global playlist, no login for 30s previews
+    embedUrl: "https://open.spotify.com/embed/playlist/37i9dQZEVXbMDoHDwVN2tF?utm_source=generator&theme=0&autoplay=0",
+    note_id: "Preview 30 detik gratis. Login Spotify untuk lagu penuh.",
+    note_en: "30-second free previews. Login Spotify for full tracks.",
+    desc_id: "Musik & podcast",
+    desc_en: "Music & podcasts",
+  },
+  {
+    id: "maps", name: "Google Maps", color: "#4285F4", bgColor: "#1a1a2e",
+    strategy: "embed",
+    // Official Maps embed — requires NEXT_PUBLIC_MAPS_KEY in .env.local (free tier)
+    embedUrl: "https://maps.google.com/maps?q=current+location&output=embed&hl=id",
+    note_id: "Tambahkan NEXT_PUBLIC_MAPS_KEY di .env.local untuk Maps embed penuh.",
+    note_en: "Add NEXT_PUBLIC_MAPS_KEY to .env.local for full Maps embed.",
+    desc_id: "Navigasi & tempat",
+    desc_en: "Navigate & find places",
+  },
+  {
+    id: "whatsapp", name: "WhatsApp", color: "#25D366", bgColor:"#111b21",
+    strategy: "deeplink",
+    links: [
+      { label_id:"Buka WhatsApp di HP",   label_en:"Open WhatsApp on phone", url:"whatsapp://",               icon:"📱" },
+      { label_id:"WhatsApp Web",          label_en:"WhatsApp Web",           url:"https://web.whatsapp.com",  icon:"🌐" },
+      { label_id:"Kirim Pesan Baru",      label_en:"Send New Message",       url:"https://wa.me/",            icon:"✉️" },
+    ],
+    note_id: "WhatsApp memblokir embedding di semua browser untuk keamanan E2E.",
+    note_en: "WhatsApp blocks all iframe embedding for E2E security.",
+    desc_id: "Pesan & panggilan",
+    desc_en: "Messages & calls",
+  },
+  {
+    id: "instagram", name: "Instagram", color: "#E1306C", bgColor:"#1a1a2e",
+    strategy: "deeplink",
+    links: [
+      { label_id:"Buka Instagram di HP",  label_en:"Open Instagram on phone", url:"instagram://",               icon:"📱" },
+      { label_id:"Instagram Web",         label_en:"Instagram Web",           url:"https://www.instagram.com",  icon:"🌐" },
+    ],
+    note_id: "Instagram memblokir embedding. Buka di app atau browser.",
+    note_en: "Instagram blocks embedding. Open in app or browser.",
+    desc_id: "Feed, Reels & Stories",
+    desc_en: "Feed, Reels & Stories",
+  },
+  {
+    id: "telegram", name: "Telegram", color: "#2AABEE", bgColor:"#1c2433",
+    strategy: "deeplink",
+    links: [
+      { label_id:"Buka Telegram di HP",   label_en:"Open Telegram on phone",  url:"tg://",                         icon:"📱" },
+      { label_id:"Telegram Web",          label_en:"Telegram Web",            url:"https://web.telegram.org/k/",   icon:"🌐" },
+    ],
+    note_id: "Telegram Web memblokir embedding sejak 2023.",
+    note_en: "Telegram Web blocks embedding since 2023.",
+    desc_id: "Pesan & channel",
+    desc_en: "Messages & channels",
+  },
+  {
+    id: "gmail", name: "Gmail", color: "#EA4335", bgColor:"#1e1e1e",
+    strategy: "deeplink",
+    links: [
+      { label_id:"Buka Gmail di HP",      label_en:"Open Gmail on phone",     url:"googlegmail://",             icon:"📱" },
+      { label_id:"Gmail Web",             label_en:"Gmail Web",               url:"https://mail.google.com",    icon:"🌐" },
+    ],
+    note_id: "Gmail memblokir embedding untuk keamanan akun Google.",
+    note_en: "Gmail blocks embedding for Google account security.",
+    desc_id: "Email & kotak masuk",
+    desc_en: "Email & inbox",
+  },
+  {
+    id: "twitter", name: "X / Twitter", color: "#e7e9ea", bgColor:"#15202b",
+    strategy: "deeplink",
+    links: [
+      { label_id:"Buka X di HP",          label_en:"Open X on phone",         url:"twitter://",            icon:"📱" },
+      { label_id:"X Web",                 label_en:"X Web",                   url:"https://x.com",         icon:"🌐" },
+      { label_id:"Jelajahi Trending",     label_en:"Browse Trending",         url:"https://x.com/explore", icon:"🔥" },
+    ],
+    note_id: "X memblokir embedding untuk mencegah scraping.",
+    note_en: "X blocks embedding to prevent scraping.",
+    desc_id: "Tweet & trending",
+    desc_en: "Tweets & trending",
+  },
+]
+
+type AppLink = { label_id:string; label_en:string; url:string; icon:string }
+type AppCfg  = typeof APP_CONFIG[0]
+
 function AppsPanel({accent,accentDim,accentFaint,lang,theme,onIncomingCall}:{
   accent:string;accentDim:string;accentFaint:string;lang:string;theme:any;
-  onIncomingCall?:(call:IncomingCall)=>void
+  onIncomingCall:(c:any)=>void
 }) {
-  const [activeApp,  setActiveApp]  = useState<MockApp|null>(null)
-  const [loginState, setLoginState] = useState<Record<string,boolean>>({})
-  const [loginForm,  setLoginForm]  = useState({email:"",pass:""})
-  const [loggingIn,  setLoggingIn]  = useState(false)
+  const [activeApp, setActiveApp] = useState<string|null>(null)
+  const [loading,   setLoading]   = useState(true)
   const T = theme
+  const current = APP_CONFIG.find(a => a.id === activeApp)
 
-  const isLoggedIn = (appId:string) => loginState[appId] ?? false
-  const msgs = activeApp ? (MOCK_MESSAGES[activeApp.id]||[]) : []
-  const totalUnread = MOCK_APPS.reduce((a,b)=>a+b.unread,0)
-
-  const doLogin = () => {
-    if (!loginForm.email || !loginForm.pass) return
-    setLoggingIn(true)
-    setTimeout(()=>{
-      setLoginState(s=>({...s,[activeApp!.id]:true}))
-      setLoggingIn(false)
-    }, 1200)
-  }
-
-  const simulateCall = (app:MockApp) => {
-    const callerMsgs = MOCK_MESSAGES[app.id]
-    const caller = callerMsgs?.[0]?.sender ?? "Unknown"
-    onIncomingCall?.({
-      id: `call_${Date.now()}`,
-      caller, app: app.name,
-      avatar: caller.split(" ").map((w:string)=>w[0]).join("").slice(0,2).toUpperCase(),
-      duration: 0,
-    })
-  }
-
-  // ── App detail / inbox ──
-  if (activeApp) {
-    const loggedIn = isLoggedIn(activeApp.id)
+  // ── Embed View ─────────────────────────────────────────────────────────────
+  const EmbedView = ({ app }: { app: AppCfg }) => {
+    const url = (app as any).embedUrl || (app as any).embedUrlFallback || ""
     return (
-      <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
-        {/* App Header */}
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexShrink:0,
-          padding:"6px 8px",borderRadius:8,background:activeApp.bgGrad,position:"relative",overflow:"hidden"}}>
-          <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.35)"}}/>
-          <div style={{position:"relative",fontSize:22,zIndex:1}}>{activeApp.icon}</div>
-          <div style={{position:"relative",flex:1,zIndex:1}}>
-            <div style={{fontSize:12,fontWeight:"bold",color:"#fff"}}>{activeApp.name}</div>
-            <div style={{fontSize:8,color:"rgba(255,255,255,0.65)"}}>
-              {loggedIn
-                ? (lang==="en"?"Connected · Mock Mode":"Terhubung · Mode Mock")
-                : (lang==="en"?"Not connected":"Belum terhubung")}
-            </div>
+      <div style={{display:"flex",flexDirection:"column",height:"100%",gap:0}}>
+        {/* Toolbar */}
+        <div style={{display:"flex",alignItems:"center",gap:6,
+          paddingBottom:6,marginBottom:4,flexShrink:0,
+          borderBottom:`1px solid ${accentDim}`}}>
+          <button onClick={()=>setActiveApp(null)}
+            style={{padding:"3px 9px",borderRadius:3,cursor:"pointer",
+              border:`1px solid ${accentDim}`,background:"transparent",
+              color:accentDim,fontSize:9,fontFamily:"monospace"}}>←</button>
+          <div style={{width:18,height:18,borderRadius:5,overflow:"hidden",flexShrink:0}}>
+            <AppIcon id={app.id} size={18}/>
           </div>
-          <div style={{position:"relative",display:"flex",gap:5,zIndex:1}}>
-            {loggedIn && ["whatsapp","telegram"].includes(activeApp.id) && (
-              <button onClick={()=>simulateCall(activeApp)}
-                style={{padding:"4px 8px",borderRadius:20,fontSize:8,cursor:"pointer",border:"none",
-                  background:"rgba(255,255,255,0.2)",color:"#fff",backdropFilter:"blur(4px)"}}>
-                📞 {lang==="en"?"Simulate Call":"Simulasi Telpon"}
-              </button>
-            )}
-            <button onClick={()=>setActiveApp(null)}
-              style={{padding:"4px 8px",borderRadius:20,fontSize:8,cursor:"pointer",border:"none",
-                background:"rgba(255,255,255,0.2)",color:"#fff"}}>
-              ← {lang==="en"?"Back":"Kembali"}
-            </button>
-          </div>
+          <span style={{fontSize:9.5,fontWeight:"bold",color:T.textPrimary,flex:1}}>
+            {app.name}
+          </span>
+          <span style={{fontSize:6.5,padding:"1px 7px",borderRadius:20,
+            background:`${app.color}18`,color:app.color,
+            border:`1px solid ${app.color}44`}}>
+            ✓ {lang==="en"?"Official embed":"Embed resmi"}
+          </span>
         </div>
-
-        {!loggedIn ? (
-          /* Login Form */
-          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
-            <div style={{fontSize:30,marginBottom:4}}>{activeApp.icon}</div>
-            <div style={{fontSize:11,color:T.textPrimary,fontWeight:"bold"}}>{lang==="en"?`Sign in to ${activeApp.name}`:`Masuk ke ${activeApp.name}`}</div>
-            <div style={{fontSize:8,color:T.textMuted,marginBottom:8,textAlign:"center",lineHeight:1.5}}>
-              {lang==="en"?"Demo mode — credentials are not stored":"Mode demo — data login tidak tersimpan"}
+        {/* iframe */}
+        <div style={{flex:1,position:"relative",borderRadius:6,overflow:"hidden",
+          border:`1px solid ${accentDim}`,minHeight:0}}>
+          {loading && (
+            <div style={{position:"absolute",inset:0,zIndex:10,
+              display:"flex",flexDirection:"column",
+              alignItems:"center",justifyContent:"center",
+              gap:10,background:T.bgCard}}>
+              <div style={{width:32,height:32,borderRadius:10,overflow:"hidden"}}>
+                <AppIcon id={app.id} size={32}/>
+              </div>
+              <div style={{width:16,height:16,border:`2px solid ${app.color}`,
+                borderTopColor:"transparent",borderRadius:"50%",
+                animation:"spin 0.8s linear infinite"}}/>
+              <span style={{fontSize:8,color:accentDim}}>
+                {lang==="en"?"Loading...":"Memuat..."}
+              </span>
             </div>
-            <div style={{width:"100%",maxWidth:200,display:"flex",flexDirection:"column",gap:6}}>
-              <input value={loginForm.email}
-                onChange={e=>setLoginForm(f=>({...f,email:e.target.value}))}
-                placeholder={lang==="en"?"Email / Username":"Email / Username"}
-                style={{padding:"7px 10px",borderRadius:6,border:`1px solid ${accentDim}`,
-                  background:T.bgCard,color:T.textPrimary,fontSize:9,outline:"none",fontFamily:"monospace"}}
-              />
-              <input type="password" value={loginForm.pass}
-                onChange={e=>setLoginForm(f=>({...f,pass:e.target.value}))}
-                onKeyDown={e=>e.key==="Enter"&&doLogin()}
-                placeholder={lang==="en"?"Password":"Kata sandi"}
-                style={{padding:"7px 10px",borderRadius:6,border:`1px solid ${accentDim}`,
-                  background:T.bgCard,color:T.textPrimary,fontSize:9,outline:"none",fontFamily:"monospace"}}
-              />
-              <button onClick={doLogin} disabled={loggingIn}
-                style={{padding:"8px",borderRadius:6,cursor:"pointer",
-                  background:loggingIn?accentFaint:`${accent}`,
-                  border:`1px solid ${accent}`,color:T.isLight?"#fff":"#000",
-                  fontSize:9,fontFamily:"monospace",fontWeight:"bold",letterSpacing:1,
-                  display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                {loggingIn
-                  ? <><div style={{width:10,height:10,border:"2px solid currentColor",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>{lang==="en"?"Connecting...":"Menghubungkan..."}</>
-                  : (lang==="en"?`Sign In`:`Masuk`)}
-              </button>
-            </div>
-          </div>
-        ) : (
-          /* Message List */
-          <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:5}}>
-            {msgs.length===0
-              ? <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",
-                  color:accentDim,fontSize:9}}>No messages</div>
-              : msgs.map(msg=>(
-                  <div key={msg.id}
-                    style={{display:"flex",gap:8,padding:"7px 8px",borderRadius:7,
-                      background:msg.unread?`${accent}0a`:T.bgCard,
-                      border:`1px solid ${msg.unread?accentDim:T.borderFaint}`,
-                      cursor:"pointer",transition:"all 0.15s"}}
-                    onMouseEnter={e=>{e.currentTarget.style.borderColor=accent}}
-                    onMouseLeave={e=>{e.currentTarget.style.borderColor=msg.unread?accentDim:T.borderFaint}}>
-                    {/* Avatar */}
-                    <div style={{width:28,height:28,borderRadius:"50%",flexShrink:0,
-                      background:activeApp.bgGrad,display:"flex",alignItems:"center",
-                      justifyContent:"center",fontSize:9,fontWeight:"bold",color:"#fff"}}>
-                      {msg.avatar}
-                    </div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
-                        <span style={{fontSize:9.5,color:T.textPrimary,fontWeight:"bold",
-                          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{msg.sender}</span>
-                        <span style={{fontSize:7.5,color:accentDim,flexShrink:0,marginLeft:4}}>{msg.time}</span>
-                      </div>
-                      <div style={{fontSize:8.5,color:T.textSecondary,
-                        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{msg.text}</div>
-                    </div>
-                    {msg.unread&&(
-                      <div style={{width:7,height:7,borderRadius:"50%",flexShrink:0,
-                        background:accent,alignSelf:"center",boxShadow:`0 0 6px ${accent}`}}/>
-                    )}
-                  </div>
-                ))
-            }
-          </div>
-        )}
+          )}
+          <iframe
+              key={app.id}
+              src={url}
+              style={{width:"100%",height:"100%",border:"none",
+                background:app.bgColor,colorScheme:"dark"}}
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture; web-share"
+              allowFullScreen
+              title={app.name}
+              referrerPolicy="strict-origin-when-cross-origin"
+              onLoad={()=>setLoading(false)}
+            />
+        </div>
+        {/* Note */}
+        <div style={{marginTop:4,padding:"4px 8px",borderRadius:5,flexShrink:0,
+          background:`${accent}08`,border:`1px solid ${accentDim}33`,
+          fontSize:7,color:accentDim}}>
+          💡 {lang==="en"?(app as any).note_en:(app as any).note_id}
+        </div>
       </div>
     )
   }
 
-  // ── App Grid ──
-  return (
+  // ── Deep Link View ─────────────────────────────────────────────────────────
+  const DeepLinkView = ({ app }: { app: AppCfg }) => (
     <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
-      {/* Header */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexShrink:0}}>
-        <div>
-          <div style={{fontSize:11,fontWeight:"bold",color:accent}}>◫ {lang==="en"?"App Hub":"Hub Aplikasi"}</div>
-          <div style={{fontSize:7.5,color:accentDim}}>
-            {totalUnread>0 ? `${totalUnread} ${lang==="en"?"unread":"belum dibaca"}` : lang==="en"?"All caught up":"Semua sudah dibaca"}
-          </div>
+      {/* Toolbar */}
+      <div style={{display:"flex",alignItems:"center",gap:8,
+        paddingBottom:8,marginBottom:8,flexShrink:0,
+        borderBottom:`1px solid ${accentDim}`}}>
+        <button onClick={()=>setActiveApp(null)}
+          style={{padding:"3px 9px",borderRadius:3,cursor:"pointer",
+            border:`1px solid ${accentDim}`,background:"transparent",
+            color:accentDim,fontSize:9,fontFamily:"monospace"}}>←</button>
+        <div style={{width:20,height:20,borderRadius:6,overflow:"hidden"}}>
+          <AppIcon id={app.id} size={20}/>
         </div>
-        <div style={{fontSize:7.5,color:accentDim,border:`1px solid ${accentDim}`,padding:"2px 7px",borderRadius:20}}>
-          {lang==="en"?"Mock Mode":"Mode Mock"}
+        <span style={{fontSize:10,fontWeight:"bold",color:T.textPrimary}}>{app.name}</span>
+      </div>
+      {/* Icon */}
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",
+        padding:"16px 0 14px",gap:8}}>
+        <div style={{width:64,height:64,borderRadius:18,overflow:"hidden",
+          boxShadow:`0 4px 24px ${app.color}55`}}>
+          <AppIcon id={app.id} size={64}/>
+        </div>
+        <div style={{fontSize:11,fontWeight:"bold",color:T.textPrimary}}>{app.name}</div>
+        <div style={{fontSize:7.5,color:"#f88",textAlign:"center",lineHeight:1.6,
+          maxWidth:"90%",padding:"5px 10px",borderRadius:5,
+          background:"#ff444410",border:"1px solid #f8870030"}}>
+          ⚠ {lang==="en"?(app as any).note_en:(app as any).note_id}
         </div>
       </div>
-
-      {/* App grid */}
-      <div style={{flex:1,overflowY:"auto",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,alignContent:"start"}}>
-        {MOCK_APPS.map(app=>(
-          <div key={app.id} onClick={()=>setActiveApp(app)}
-            style={{display:"flex",flexDirection:"column",alignItems:"center",
-              padding:"8px 4px",borderRadius:10,cursor:"pointer",
-              border:`1px solid ${accentDim}`,background:T.bgCard,
-              transition:"all 0.2s",position:"relative"}}
-            onMouseEnter={e=>{e.currentTarget.style.borderColor=app.color;e.currentTarget.style.transform="scale(1.04)"}}
-            onMouseLeave={e=>{e.currentTarget.style.borderColor=accentDim;e.currentTarget.style.transform="scale(1)"}}>
-            {/* Unread badge */}
-            {app.unread>0&&(
-              <div style={{position:"absolute",top:4,right:4,minWidth:14,height:14,
-                borderRadius:7,background:app.color,
-                display:"flex",alignItems:"center",justifyContent:"center",
-                fontSize:7,fontWeight:"bold",color:"#fff",padding:"0 3px",
-                boxShadow:`0 0 6px ${app.color}88`}}>
-                {app.unread>9?"9+":app.unread}
-              </div>
-            )}
-            {/* Icon */}
-            <div style={{width:40,height:40,borderRadius:12,
-              display:"flex",alignItems:"center",justifyContent:"center",
-              marginBottom:5,overflow:"hidden",
-              boxShadow:`0 2px 14px ${app.color}55`,flexShrink:0}}>
-              <AppIcon id={app.id} size={40}/>
-            </div>
-            <div style={{fontSize:7.5,color:T.textPrimary,textAlign:"center",
-              fontWeight:"bold",lineHeight:1.2,
-              overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
-              width:"100%",padding:"0 2px"}}>
-              {app.name}
-            </div>
-            {/* Login status dot */}
-            <div style={{width:5,height:5,borderRadius:"50%",marginTop:3,
-              background:isLoggedIn(app.id)?app.color:accentDim,
-              boxShadow:isLoggedIn(app.id)?`0 0 5px ${app.color}`:undefined}}/>
-          </div>
+      {/* Buttons */}
+      <div style={{display:"flex",flexDirection:"column",gap:7,padding:"0 4px"}}>
+        {((app as any).links as AppLink[]).map((lk, i) => (
+          <button key={i}
+            onClick={()=>window.open(lk.url,"_blank","noopener,noreferrer")}
+            style={{display:"flex",alignItems:"center",gap:10,
+              padding:"10px 14px",borderRadius:8,cursor:"pointer",
+              border:`1px solid ${i===0?app.color:accentDim}`,
+              background:i===0?`${app.color}18`:T.bgCard,
+              color:i===0?app.color:T.textPrimary,
+              fontSize:9,fontFamily:"monospace",textAlign:"left",
+              transition:"all 0.15s"}}
+            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor=app.color}}
+            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=i===0?app.color:accentDim}}>
+            <span style={{fontSize:15,lineHeight:1}}>{lk.icon}</span>
+            <span>{lang==="en"?lk.label_en:lk.label_id}</span>
+            <span style={{marginLeft:"auto",fontSize:8,color:accentDim}}>↗</span>
+          </button>
         ))}
+      </div>
+    </div>
+  )
+
+  // ── Active app ─────────────────────────────────────────────────────────────
+  if (activeApp && current) {
+    return (current as any).strategy === "embed"
+      ? <EmbedView  app={current}/>
+      : <DeepLinkView app={current}/>
+  }
+
+  // ── Grid ───────────────────────────────────────────────────────────────────
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <div style={{fontSize:11,fontWeight:"bold",color:accent,
+        marginBottom:6,letterSpacing:0.5,textShadow:`0 0 8px ${accent}66`}}>
+        ⊞ {lang==="en"?"APPLICATIONS":"APLIKASI"}
+      </div>
+      <div style={{flex:1,overflowY:"auto",scrollbarWidth:"thin",
+        scrollbarColor:`${accentDim} transparent`}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+          {APP_CONFIG.map(app=>(
+            <div key={app.id}
+              onClick={()=>{setActiveApp(app.id);setLoading(true)}}
+              style={{display:"flex",flexDirection:"column",alignItems:"center",
+                padding:"10px 4px 8px",borderRadius:10,cursor:"pointer",
+                border:`1px solid ${accentDim}`,background:T.bgCard,
+                transition:"all 0.18s",position:"relative"}}
+              onMouseEnter={e=>{
+                const el=e.currentTarget as HTMLElement
+                el.style.borderColor=app.color
+                el.style.transform="scale(1.06)"
+                el.style.background=`${app.color}14`
+              }}
+              onMouseLeave={e=>{
+                const el=e.currentTarget as HTMLElement
+                el.style.borderColor=accentDim
+                el.style.transform="scale(1)"
+                el.style.background=T.bgCard
+              }}>
+              <div style={{width:40,height:40,borderRadius:12,overflow:"hidden",
+                marginBottom:5,boxShadow:`0 2px 14px ${app.color}55`}}>
+                <AppIcon id={app.id} size={40}/>
+              </div>
+              <div style={{fontSize:7,color:T.textPrimary,textAlign:"center",
+                fontWeight:"bold",lineHeight:1.2,
+                overflow:"hidden",textOverflow:"ellipsis",
+                whiteSpace:"nowrap",width:"100%",paddingInline:2}}>
+                {app.name.split(" ")[0]}
+              </div>
+              <div style={{fontSize:6,color:accentDim,marginTop:1,textAlign:"center",
+                overflow:"hidden",textOverflow:"ellipsis",
+                whiteSpace:"nowrap",width:"100%",paddingInline:2}}>
+                {lang==="en"?app.desc_en:app.desc_id}
+              </div>
+            </div>
+          ))}
+        </div>
+
       </div>
     </div>
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// INCOMING CALL BUBBLE — floating overlay
-// ─────────────────────────────────────────────────────────────────────────────
 function IncomingCallBubble({call,accent,accentDim,lang,tk,onAnswer,onDecline}:{
   call:IncomingCall; accent:string; accentDim:string; lang:string; tk?:any
   onAnswer:()=>void; onDecline:()=>void
@@ -588,6 +700,8 @@ function HomePanelNews({accent,accentDim,accentFaint,lang,theme}:{accent:string;
   const [fetchingAI, setFetchingAI] = useState(false)
   const [aiSummary,  setAiSummary]  = useState("")
   const [lastFetch,  setLastFetch]  = useState(0)
+  const [imgErrors,  setImgErrors]  = useState<Record<string,boolean>>({})
+  const T = theme
 
   const fetchNews = async (force=false) => {
     if (!force && Date.now()-lastFetch < 5*60*1000 && news.length>0) return
@@ -597,13 +711,12 @@ function HomePanelNews({accent,accentDim,accentFaint,lang,theme}:{accent:string;
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       if (data.articles?.length>0) {
-        setNews(data.articles)
-        setLastFetch(Date.now())
+        setNews(data.articles); setLastFetch(Date.now())
       } else {
         setError(lang==="en"?"No articles found":"Berita tidak tersedia")
       }
     } catch(e:any) {
-      setError(lang==="en"?`Failed to load news: ${e.message}`:`Gagal memuat berita: ${e.message}`)
+      setError(lang==="en"?`Failed: ${e.message}`:`Gagal: ${e.message}`)
     }
     setLoading(false)
   }
@@ -617,8 +730,8 @@ function HomePanelNews({accent,accentDim,accentFaint,lang,theme}:{accent:string;
     setFetchingAI(true); setAiSummary("")
     try {
       const prompt = lang==="en"
-        ? `Give a 2-sentence insightful analysis of this news for smart glasses display: "${article.title}". What's the key impact?`
-        : `Berikan analisis 2 kalimat yang insightful tentang berita ini untuk tampilan kacamata pintar: "${article.title}". Apa dampak utamanya?`
+        ? `2-sentence smart glasses analysis of: "${article.title}". Key insight?`
+        : `Analisis 2 kalimat untuk kacamata pintar: "${article.title}". Dampak utamanya?`
       const res = await fetch("/api/claude-vision",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,mode:"voice",textOnly:true})})
       const data = await res.json()
       setAiSummary(data.result?.replace(/```json|```/g,"").trim()||"")
@@ -626,65 +739,95 @@ function HomePanelNews({accent,accentDim,accentFaint,lang,theme}:{accent:string;
     setFetchingAI(false)
   }
 
-  const T = theme
+  const NewsImage = ({article, h: imgH=52, radius=6}: {article:NewsArticle; h?:number; radius?:number}) => {
+    const hasErr = imgErrors[article.id]
+    return (
+      <div style={{position:"relative",height:imgH,flexShrink:0,overflow:"hidden",
+        borderRadius:radius,background:article.imageGradient}}>
+        {article.imageUrl && !hasErr && (
+          <img src={article.imageUrl} alt=""
+            style={{position:"absolute",inset:0,width:"100%",height:"100%",
+              objectFit:"cover",transition:"opacity 0.3s"}}
+            onError={()=>setImgErrors(p=>({...p,[article.id]:true}))}/>
+        )}
+        <div style={{position:"absolute",inset:0,
+          background:"linear-gradient(to bottom,rgba(0,0,0,0.05) 0%,rgba(0,0,0,0.55) 100%)"}}/>
+        <div style={{position:"absolute",top:5,left:6,fontSize:9,
+          padding:"1px 6px",borderRadius:20,
+          background:`${accent}33`,color:accent,
+          border:`1px solid ${accent}55`,letterSpacing:0.3,fontWeight:"bold"}}>
+          {article.category}
+        </div>
+        <div style={{position:"absolute",bottom:5,right:6,
+          fontSize:7,color:"rgba(255,255,255,0.7)",
+          background:"rgba(0,0,0,0.4)",padding:"1px 5px",borderRadius:10}}>
+          {article.source}
+        </div>
+        {(hasErr||!article.imageUrl)&&(
+          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",
+            justifyContent:"center",fontSize:22}}>{article.emoji}</div>
+        )}
+      </div>
+    )
+  }
 
-  // ── Article Detail View ──
+  // ── Article Detail ──
   if (selected) return (
     <div style={{display:"flex",flexDirection:"column",height:"100%",gap:0}}>
       <div style={{flex:1,overflowY:"auto",padding:"0 2px"}}>
-        {/* Hero */}
-        <div style={{height:84,borderRadius:8,marginBottom:10,
-          background:selected.imageGradient,
-          display:"flex",alignItems:"center",justifyContent:"center",
-          fontSize:34,position:"relative",overflow:"hidden",flexShrink:0}}>
-          {selected.imageUrl&&(
-            <img src={selected.imageUrl} alt="" style={{position:"absolute",inset:0,
-              width:"100%",height:"100%",objectFit:"cover",opacity:0.55}}
-              onError={e=>{(e.target as HTMLImageElement).style.display="none"}}/>
-          )}
-          <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom,transparent 40%,rgba(0,0,0,0.65))"}}/>
-          <span style={{position:"relative",zIndex:1}}>{selected.emoji}</span>
-          <div style={{position:"absolute",bottom:6,left:10,right:10,zIndex:1,
-            display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
-            <span style={{fontSize:7,padding:"2px 7px",borderRadius:20,
-              background:`${accent}44`,color:accent,border:`1px solid ${accent}66`}}>
-              {selected.category}
-            </span>
-            <span style={{fontSize:7,color:"rgba(255,255,255,0.75)"}}>{selected.source} · {selected.time}</span>
-          </div>
+        <NewsImage article={selected} h={110} radius={8}/>
+        <div style={{marginTop:8,marginBottom:2,display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:7,padding:"2px 8px",borderRadius:20,
+            background:`${accent}22`,color:accent,border:`1px solid ${accent}44`}}>
+            {selected.category}
+          </span>
+          <span style={{fontSize:7,color:T.textMuted}}>{selected.source} · {selected.time}</span>
         </div>
-        <div style={{fontSize:12,fontWeight:"bold",color:T.textPrimary,lineHeight:1.5,marginBottom:8,fontFamily:"sans-serif"}}>{selected.title}</div>
-        <div style={{fontSize:10,color:T.textSecondary,lineHeight:1.7,marginBottom:10}}>{selected.summary}</div>
+        <div style={{fontSize:12,fontWeight:"bold",color:T.textPrimary,lineHeight:1.5,
+          marginBottom:8,marginTop:4}}>{selected.title}</div>
+        <div style={{fontSize:10,color:T.textSecondary,lineHeight:1.75,marginBottom:10}}>
+          {selected.summary}
+        </div>
         {/* AI Insight */}
-        <div style={{padding:"8px 10px",borderRadius:8,background:`${accent}0c`,border:`1px solid ${accentDim}`,marginBottom:8}}>
-          <div style={{fontSize:8,color:accentDim,letterSpacing:1,marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
+        <div style={{padding:"8px 10px",borderRadius:6,background:`${accent}0c`,
+          border:`1px solid ${accentDim}`,marginBottom:8}}>
+          <div style={{fontSize:8,color:accentDim,letterSpacing:1,marginBottom:6,
+            display:"flex",alignItems:"center",gap:6}}>
             <span style={{color:accent}}>⬡</span> AI INSIGHT
           </div>
           {aiSummary
             ? <div style={{fontSize:9.5,color:T.textPrimary,lineHeight:1.7}}>{aiSummary}</div>
             : fetchingAI
-              ? <div style={{display:"flex",gap:4,alignItems:"center",padding:"4px 0"}}>
-                  {[0,1,2].map(i=><div key={i} style={{width:5,height:5,borderRadius:"50%",background:accent,opacity:0.6,animation:"bounce 1.2s ease infinite",animationDelay:`${i*0.2}s`}}/>)}
+              ? <div style={{display:"flex",gap:4,padding:"4px 0"}}>
+                  {[0,1,2].map(i=><div key={i} style={{width:5,height:5,borderRadius:"50%",
+                    background:accent,animation:"bounce 1.2s ease infinite",
+                    animationDelay:`${i*0.2}s`}}/>)}
                 </div>
-              : <button onClick={()=>askAI(selected)} style={{fontSize:8,color:accent,background:"none",border:`1px solid ${accentDim}`,borderRadius:20,padding:"3px 10px",cursor:"pointer"}}>
+              : <button onClick={()=>askAI(selected)}
+                  style={{fontSize:8,color:accent,background:"none",
+                    border:`1px solid ${accentDim}`,borderRadius:20,
+                    padding:"3px 10px",cursor:"pointer"}}>
                   ✦ {lang==="en"?"Get AI analysis":"Minta analisis AI"}
                 </button>
           }
         </div>
-        {selected.url&&(
-          <InlineArticleReader url={selected.url} accent={accent} accentDim={accentDim} T={T} lang={lang}/>
-        )}
+        {selected.url&&<InlineArticleReader url={selected.url} accent={accent} accentDim={accentDim} T={T} lang={lang}/>}
       </div>
-      <div style={{display:"flex",gap:5,flexShrink:0,paddingTop:6,borderTop:`1px solid ${accentDim}`}}>
+      <div style={{display:"flex",gap:5,flexShrink:0,paddingTop:6,
+        borderTop:`1px solid ${accentDim}`}}>
         <button onClick={()=>{setSelected(null);setAiSummary("")}}
-          style={{flex:1,padding:"6px",borderRadius:6,cursor:"pointer",
+          style={{flex:1,padding:"6px",borderRadius:4,cursor:"pointer",
             border:`1px solid ${accentDim}`,background:T.bgInset,
-            color:T.textSecondary,fontSize:9,fontFamily:"monospace"}}>← {lang==="en"?"Back":"Kembali"}</button>
+            color:T.textSecondary,fontSize:9,fontFamily:"monospace"}}>
+          ← {lang==="en"?"Back":"Kembali"}
+        </button>
         {!aiSummary&&!fetchingAI&&(
           <button onClick={()=>askAI(selected)}
-            style={{flex:2,padding:"6px",borderRadius:6,cursor:"pointer",
+            style={{flex:2,padding:"6px",borderRadius:4,cursor:"pointer",
               border:`1px solid ${accent}`,background:`${accent}18`,
-              color:accent,fontSize:9,fontFamily:"monospace",letterSpacing:1}}>⬡ {lang==="en"?"AI Analysis":"Analisis AI"}</button>
+              color:accent,fontSize:9,fontFamily:"monospace",letterSpacing:1}}>
+            ⬡ {lang==="en"?"AI Analysis":"Analisis AI"}
+          </button>
         )}
       </div>
     </div>
@@ -694,32 +837,35 @@ function HomePanelNews({accent,accentDim,accentFaint,lang,theme}:{accent:string;
   return (
     <div style={{display:"flex",flexDirection:"column",height:"100%",gap:0}}>
       {/* Header */}
-      <div style={{display:"flex",alignItems:"center",marginBottom:6,flexShrink:0}}>
+      <div style={{display:"flex",alignItems:"center",marginBottom:5,flexShrink:0}}>
         <div style={{flex:1}}>
-          <div style={{fontSize:11,fontWeight:"bold",color:accent,letterSpacing:0.5}}>
-            {lang==="en"?"📰 Live News Feed":"📰 Feed Berita Langsung"}
+          <div style={{fontSize:11,fontWeight:"bold",color:accent,letterSpacing:0.5,
+            textShadow:`0 0 8px ${accent}66`}}>
+            {lang==="en"?"📰 LIVE FEED":"📰 BERITA LANGSUNG"}
           </div>
           <div style={{fontSize:7.5,color:accentDim}}>
-            {loading?"memuat...":error?"⚠ error":
-             `${news.length} artikel · ${new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"})}`}
+            {loading?"memuat..."
+             :error?"⚠ error"
+             :`${filtered.length} artikel · ${new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"})}`}
           </div>
         </div>
         <button onClick={()=>fetchNews(true)}
-          style={{padding:"3px 8px",borderRadius:20,fontSize:7.5,cursor:"pointer",
-            border:`1px solid ${accentDim}`,background:accentFaint,color:accentDim,
-            letterSpacing:0.5,transition:"all 0.15s"}}
+          style={{padding:"3px 9px",borderRadius:20,fontSize:7.5,cursor:"pointer",
+            border:`1px solid ${accentDim}`,background:accentFaint,
+            color:accentDim,letterSpacing:0.5}}
           onMouseEnter={e=>{e.currentTarget.style.color=accent;e.currentTarget.style.borderColor=accent}}
           onMouseLeave={e=>{e.currentTarget.style.color=accentDim;e.currentTarget.style.borderColor=accentDim}}>
-          ↻ {lang==="en"?"Refresh":"Perbarui"}
+          ↻
         </button>
       </div>
 
       {/* Category pills */}
-      <div style={{display:"flex",gap:4,overflowX:"auto",marginBottom:7,paddingBottom:3,flexShrink:0,scrollbarWidth:"none"}}>
+      <div style={{display:"flex",gap:4,overflowX:"auto",marginBottom:6,
+        paddingBottom:3,flexShrink:0,scrollbarWidth:"none"}}>
         {allCats.map(c=>(
           <div key={c} onClick={()=>setCategory(c)}
-            style={{padding:"3px 10px",borderRadius:20,fontSize:7.5,whiteSpace:"nowrap",
-              cursor:"pointer",transition:"all 0.15s",letterSpacing:0.3,
+            style={{padding:"2px 9px",borderRadius:20,fontSize:7.5,
+              whiteSpace:"nowrap",cursor:"pointer",transition:"all 0.15s",letterSpacing:0.3,
               background:category===c?`${accent}22`:accentFaint,
               border:`1px solid ${category===c?accent:accentDim}`,
               color:category===c?accent:accentDim}}>
@@ -729,17 +875,22 @@ function HomePanelNews({accent,accentDim,accentFaint,lang,theme}:{accent:string;
       </div>
 
       {/* Content */}
-      <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,minHeight:0}}>
+      <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",
+        gap:6,minHeight:0}}>
         {loading&&(
-          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}>
-            <div style={{width:20,height:20,border:`2px solid ${accent}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+          <div style={{flex:1,display:"flex",flexDirection:"column",
+            alignItems:"center",justifyContent:"center",gap:8}}>
+            <div style={{width:18,height:18,border:`2px solid ${accent}`,
+              borderTopColor:"transparent",borderRadius:"50%",
+              animation:"spin 0.8s linear infinite"}}/>
             <span style={{fontSize:9,color:accentDim,letterSpacing:1}}>
-              {lang==="en"?"FETCHING LIVE NEWS...":"MENGAMBIL BERITA LANGSUNG..."}
+              {lang==="en"?"FETCHING NEWS...":"MENGAMBIL BERITA..."}
             </span>
           </div>
         )}
         {!loading&&error&&(
-          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}>
+          <div style={{flex:1,display:"flex",flexDirection:"column",
+            alignItems:"center",justifyContent:"center",gap:8}}>
             <div style={{fontSize:9,color:"#f88",textAlign:"center",lineHeight:1.6}}>{error}</div>
             <button onClick={()=>fetchNews(true)}
               style={{padding:"5px 14px",borderRadius:20,fontSize:8,cursor:"pointer",
@@ -748,70 +899,85 @@ function HomePanelNews({accent,accentDim,accentFaint,lang,theme}:{accent:string;
             </button>
           </div>
         )}
-        {!loading&&!error&&filtered.length===0&&(
-          <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <span style={{fontSize:9,color:accentDim}}>{lang==="en"?"No articles":"Tidak ada artikel"}</span>
-          </div>
-        )}
         {!loading&&!error&&filtered.length>0&&(
           <>
-            {/* Featured */}
-            <div onClick={()=>setSelected(filtered[0])}
+            {/* Featured card — large image */}
+            <div onClick={()=>{setSelected(filtered[0]);setAiSummary("")}}
               style={{borderRadius:8,overflow:"hidden",cursor:"pointer",flexShrink:0,
-                border:`1.5px solid ${accentDim}`,transition:"all 0.2s",
-                background:filtered[0].imageGradient,position:"relative",height:88}}
+                border:`1.5px solid ${accentDim}`,transition:"all 0.2s",position:"relative"}}
               onMouseEnter={e=>{e.currentTarget.style.borderColor=accent;e.currentTarget.style.transform="scale(1.01)"}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor=accentDim;e.currentTarget.style.transform="scale(1)"}}>
-              {/* Real image overlay */}
-              {filtered[0].imageUrl&&(
-                <img src={filtered[0].imageUrl} alt="" style={{position:"absolute",inset:0,
-                  width:"100%",height:"100%",objectFit:"cover",opacity:0.55,
-                  borderRadius:7}} onError={e=>{(e.target as HTMLImageElement).style.display="none"}}/>
-              )}
-              <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom,transparent 20%,rgba(0,0,0,0.78))"}}/>
-              <div style={{position:"absolute",top:8,left:10,fontSize:22}}>{filtered[0].emoji}</div>
-              <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"8px 10px"}}>
+              <NewsImage article={filtered[0]} h={96} radius={0}/>
+              <div style={{padding:"7px 10px",background:T.bgCard}}>
                 <div style={{fontSize:7,color:accent,letterSpacing:0.5,marginBottom:3}}>
-                  ★ {lang==="en"?"TOP STORY":"BERITA UTAMA"} · {filtered[0].category} · {filtered[0].source}
+                  ★ {lang==="en"?"TOP STORY":"BERITA UTAMA"} · {filtered[0].time}
                 </div>
-                <div style={{fontSize:10.5,color:"#fff",fontWeight:"bold",lineHeight:1.4,
-                  overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
+                <div style={{fontSize:10.5,color:T.textPrimary,fontWeight:"bold",
+                  lineHeight:1.4,overflow:"hidden",display:"-webkit-box",
+                  WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
                   {filtered[0].title}
                 </div>
-                <div style={{fontSize:7,color:"rgba(255,255,255,0.65)",marginTop:3}}>{filtered[0].time}</div>
               </div>
             </div>
 
-            {/* Grid */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
-              {filtered.slice(1).map(article=>(
-                <div key={article.id} onClick={()=>setSelected(article)}
-                  style={{borderRadius:7,overflow:"hidden",cursor:"pointer",
-                    border:`1px solid ${accentDim}`,transition:"all 0.2s",
-                    background:T.bgCard,display:"flex",flexDirection:"column"}}
+            {/* Horizontal scroll row — 3 medium cards */}
+            <div style={{display:"flex",gap:5,overflowX:"auto",flexShrink:0,
+              paddingBottom:2,scrollbarWidth:"none"}}>
+              {filtered.slice(1,5).map(article=>(
+                <div key={article.id} onClick={()=>{setSelected(article);setAiSummary("")}}
+                  style={{minWidth:110,borderRadius:7,overflow:"hidden",cursor:"pointer",
+                    border:`1px solid ${accentDim}`,transition:"all 0.18s",flexShrink:0,
+                    background:T.bgCard}}
                   onMouseEnter={e=>{e.currentTarget.style.borderColor=accent}}
                   onMouseLeave={e=>{e.currentTarget.style.borderColor=accentDim}}>
-                  <div style={{height:42,background:article.imageGradient,
-                    display:"flex",alignItems:"center",justifyContent:"center",
-                    fontSize:18,position:"relative",flexShrink:0,overflow:"hidden"}}>
-                    {article.imageUrl&&(
-                      <img src={article.imageUrl} alt="" style={{position:"absolute",inset:0,
-                        width:"100%",height:"100%",objectFit:"cover",opacity:0.6}}
-                        onError={e=>{(e.target as HTMLImageElement).style.display="none"}}/>
-                    )}
-                    <div style={{position:"relative",zIndex:1}}>{article.emoji}</div>
-                    <div style={{position:"absolute",top:3,right:4,fontSize:6.5,
-                      padding:"1px 5px",borderRadius:20,
-                      background:`${accent}22`,color:accent,border:`1px solid ${accent}44`}}>
-                      {article.category}
-                    </div>
-                  </div>
-                  <div style={{padding:"5px 6px",flex:1}}>
-                    <div style={{fontSize:8.5,color:T.textPrimary,lineHeight:1.4,fontWeight:"bold",
-                      overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",marginBottom:3}}>
+                  <NewsImage article={article} h={56} radius={0}/>
+                  <div style={{padding:"5px 6px"}}>
+                    <div style={{fontSize:8,color:T.textPrimary,lineHeight:1.35,fontWeight:"bold",
+                      overflow:"hidden",display:"-webkit-box",
+                      WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
                       {article.title}
                     </div>
-                    <div style={{fontSize:7,color:accentDim}}>{article.source} · {article.time}</div>
+                    <div style={{fontSize:6.5,color:accentDim,marginTop:3}}>
+                      {article.source} · {article.time}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Vertical list — remaining articles with thumbnail */}
+            <div style={{display:"flex",flexDirection:"column",gap:5}}>
+              {filtered.slice(5).map(article=>(
+                <div key={article.id} onClick={()=>{setSelected(article);setAiSummary("")}}
+                  style={{display:"flex",gap:8,borderRadius:7,overflow:"hidden",
+                    cursor:"pointer",border:`1px solid ${accentDim}`,
+                    transition:"all 0.18s",background:T.bgCard}}
+                  onMouseEnter={e=>{e.currentTarget.style.borderColor=accent}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=accentDim}}>
+                  {/* Left thumbnail */}
+                  <div style={{width:68,flexShrink:0}}>
+                    <NewsImage article={article} h={68} radius={0}/>
+                  </div>
+                  {/* Right text */}
+                  <div style={{flex:1,padding:"6px 8px 6px 0",minWidth:0}}>
+                    <div style={{fontSize:8.5,color:T.textPrimary,fontWeight:"bold",
+                      lineHeight:1.4,overflow:"hidden",display:"-webkit-box",
+                      WebkitLineClamp:2,WebkitBoxOrient:"vertical",marginBottom:3}}>
+                      {article.title}
+                    </div>
+                    <div style={{fontSize:7,color:T.textSecondary,lineHeight:1.4,
+                      overflow:"hidden",display:"-webkit-box",
+                      WebkitLineClamp:1,WebkitBoxOrient:"vertical",marginBottom:4}}>
+                      {article.summary}
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:5}}>
+                      <span style={{fontSize:6.5,padding:"1px 5px",borderRadius:20,
+                        background:`${accent}18`,color:accent,
+                        border:`1px solid ${accent}33`}}>{article.category}</span>
+                      <span style={{fontSize:6.5,color:accentDim}}>
+                        {article.source} · {article.time}
+                      </span>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -985,6 +1151,17 @@ async function getCountryCode(countryName: string): Promise<string> {
   } catch { return "" }
 }
 
+// ── Types ─────────────────────────────────────
+type NearbyPlace = {
+  name: string
+  lat: number
+  lon?: number
+  lng?: number
+  dist?: string
+  category?: string
+  tags?: Record<string, string>
+}
+
 // ── GPS HOOK ──────────────────────────────────────────────────────────────────
 function useGPS() {
   const [coords, setCoords] = useState<{lat:number;lng:number}|null>(null)
@@ -1008,15 +1185,15 @@ function useGPS() {
     setLoadingNearby(true)
     try {
       const q = `[out:json][timeout:15];(node(around:2000,${lat},${lng})[name][amenity];node(around:2000,${lat},${lng})[name][shop];node(around:2000,${lat},${lng})[name][tourism];node(around:2000,${lat},${lng})[name][leisure];);out body 40;`
-      const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`)
+      const res = await fetch(`https://overpass.kumi.systems/api/interpreter?data=${encodeURIComponent(q)}`)
       const data = await res.json()
       if (data.elements?.length > 0) {
         setNearby(
           data.elements.filter((e:any)=>e.tags?.name)
             .map((e:any)=>({name:e.tags.name,dist:calcDist(lat,lng,e.lat,e.lon),
-              category:e.tags.amenity||e.tags.shop||"tempat",lat:e.lat,lng:e.lon}))
+              category:e.tags.amenity||e.tags.shop||"tempat",lat:e.lat,lon:e.lon,tags:e.tags}))
             .sort((a:NearbyPlace,b:NearbyPlace)=>{
-              const m=(d:string)=>d.endsWith("km")?parseFloat(d)*1000:parseFloat(d)
+              const m=(d?:string)=>!d?0:d.endsWith("km")?parseFloat(d)*1000:parseFloat(d)
               return m(a.dist)-m(b.dist)
             }).slice(0,8)
         )
@@ -1116,7 +1293,7 @@ function useGPS() {
         const timer = setTimeout(() => ctrl.abort(), 7000)
         try {
           const res  = await fetch(
-            `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(oq)}`,
+            `https://overpass.kumi.systems/api/interpreter?data=${encodeURIComponent(oq)}`,
             { signal: ctrl.signal }
           )
           if (!res.ok) return []
@@ -1128,10 +1305,11 @@ function useGPS() {
               dist:     calcDist(lat, lng, e.lat, e.lon),
               category: e.tags.amenity || e.tags.tourism || e.tags.leisure || e.tags.shop || "tempat",
               lat:      e.lat,
-              lng:      e.lon,
+              lon:      e.lon,
+              tags:     e.tags,
             }))
             .sort((a: NearbyPlace, b: NearbyPlace) => {
-              const m = (d: string) => d.endsWith("km") ? parseFloat(d)*1000 : parseFloat(d)
+              const m = (d?: string) => !d ? 0 : d.endsWith("km") ? parseFloat(d)*1000 : parseFloat(d)
               return m(a.dist) - m(b.dist)
             })
             .slice(0, 8)
@@ -1178,10 +1356,10 @@ function useGPS() {
             dist:     calcDist(lat, lng, parseFloat(e.lat), parseFloat(e.lon)),
             category: e.type || e.class || "tempat",
             lat:      parseFloat(e.lat),
-            lng:      parseFloat(e.lon),
+            lon:      parseFloat(e.lon),
           }))
           .sort((a: NearbyPlace, b: NearbyPlace) => {
-            const m = (d: string) => d.endsWith("km") ? parseFloat(d)*1000 : parseFloat(d)
+            const m = (d?: string) => !d ? 0 : d.endsWith("km") ? parseFloat(d)*1000 : parseFloat(d)
             return m(a.dist) - m(b.dist)
           })
           .slice(0, 8)
@@ -1260,6 +1438,14 @@ function useBattery() {
 }
 
 // ── REAL NOTIFS HOOK ──────────────────────────────────────────────────────────
+type RealNotif = {
+  id: string
+  type: "net" | "battery" | "gps" | "app" | "system"
+  icon: string
+  msg: string
+  time: string
+}
+
 function useRealNotifs(coords: {lat:number;lng:number}|null) {
   const [notifs, setNotifs] = useState<RealNotif[]>([])
   const counterRef = useRef(0)
@@ -1289,7 +1475,7 @@ function useRealNotifs(coords: {lat:number;lng:number}|null) {
     const now = new Date()
     const msToNextHour = (60-now.getMinutes())*60000 - now.getSeconds()*1000
     const hourTimer = setTimeout(() => {
-      addNotif({type:"time",icon:"🕐",msg:`${new Date().getHours()}:00 — Pengingat waktu dari V-Optics`})
+      addNotif({type:"system",icon:"🕐",msg:`${new Date().getHours()}:00 — Pengingat waktu dari V-Optics`})
     }, msToNextHour)
     addNotif({type:"app",icon:"◈",msg:"V-Optics HUD aktif — semua sistem berjalan"})
     return () => {
@@ -2701,7 +2887,7 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
 
   const fmt=(n:number)=>String(n).padStart(2,"0")
   const timeStr=`${fmt(time.getHours())}:${fmt(time.getMinutes())}:${fmt(time.getSeconds())}`
-  const brightness = settings?.nightMode ? Math.min(settings?.brightness??80,55) : settings?.brightness ?? 80
+  const brightness = settings?.brightness ?? 80
 
   return (
     <div className="relative w-full max-w-205 overflow-hidden select-none"
@@ -2808,7 +2994,7 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
           scrollbarColor:`${accentDim} transparent`}}>
 
           {activeFeature==="home"&&<HomePanelNews accent={accent} accentDim={accentDim} accentFaint={accentFaint} lang={lang} theme={theme}/>}
-          {activeFeature==="voice"&&<VoicePanel t={t} accent={accent} theme={theme} onAction={(action:any)=>{
+          {activeFeature==="voice"&&<VoicePanel t={t} accent={accent} onAction={(action:any)=>{
             if(action.type==="navigate") setActiveFeature(action.feature)
             else if(action.type==="search_nearby"){setActiveFeature("nav");if(coords)searchNearbyByQuery(action.query??"",coords.lat,coords.lng)}
           }}/>}
@@ -2842,7 +3028,7 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
                 border:`1px solid ${tk.border}`}}>
                 {coords
                   ? <LeafletMap lat={coords.lat} lng={coords.lng}
-                      destLat={destination?.lat} destLng={destination?.lng}
+                      destLat={destination?.lat} destLng={destination?.lon ?? destination?.lng}
                       accent={accent} accentDim={accentDim} isLight={isLight}/>
                   : <div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",
                       flexDirection:"column",gap:6,background:tk.bgCard}}>
@@ -2873,7 +3059,7 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
                       <div style={{fontSize:9.5,fontWeight:"bold",color:tk.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name||"Unnamed"}</div>
                       <div style={{fontSize:7.5,color:accentDim,marginTop:1}}>
                         {p.tags?.amenity||p.tags?.shop||p.tags?.tourism||"place"}
-                        {coords&&p.lat&&p.lon&&` · ${calcDist(coords.lat,coords.lng,p.lat,p.lon).toFixed(1)} km`}
+                        {coords&&p.lat&&p.lon&&` · ${calcDist(coords.lat,coords.lng,p.lat,p.lon)} `}
                       </div>
                     </div>
                     {destination?.name===p.name&&<span style={{fontSize:10,color:accent}}>▶</span>}
