@@ -17,6 +17,8 @@ interface NewsArticle {
   time: string
   imageGradient: string
   emoji: string
+  catColor?: string
+  imageUrl?: string | null
   url?: string
 }
 
@@ -40,144 +42,684 @@ function getPlaceholderNews(lang: string): NewsArticle[] {
   ]
 }
 
-function HomePanelNews({accent,accentDim,accentFaint,lang}:{accent:string;accentDim:string;accentFaint:string;lang:string}) {
-  const [news, setNews]           = useState<NewsArticle[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [selected, setSelected]   = useState<NewsArticle|null>(null)
-  const [category, setCategory]   = useState("all")
-  const [fetchingAI, setFetchingAI] = useState(false)
-  const [aiSummary, setAiSummary] = useState("")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// APPS PANEL — Mock Social App Hub with call notifications
+// ─────────────────────────────────────────────────────────────────────────────
+
+type MockMessage = {
+  id: string; sender: string; text: string; time: string
+  unread: boolean; avatar: string; app: string
+}
+type MockApp = {
+  id: string; name: string; icon: string; color: string
+  bgGrad: string; category: string; unread: number
+}
+type IncomingCall = {
+  id: string; caller: string; app: string; avatar: string; duration: number
+}
+
+const MOCK_APPS: MockApp[] = [
+  {id:"whatsapp", name:"WhatsApp",  icon:"💬", color:"#25D366", bgGrad:"linear-gradient(135deg,#075E54,#128C7E)", category:"Social", unread:3},
+  {id:"instagram",name:"Instagram", icon:"📸", color:"#E1306C", bgGrad:"linear-gradient(135deg,#833ab4,#fd1d1d,#fcb045)", category:"Social", unread:12},
+  {id:"telegram", name:"Telegram",  icon:"✈", color:"#2AABEE", bgGrad:"linear-gradient(135deg,#0a4a7a,#2AABEE)", category:"Social", unread:5},
+  {id:"twitter",  name:"X / Twitter",icon:"✖",color:"#1DA1F2", bgGrad:"linear-gradient(135deg,#14171A,#1DA1F2)", category:"Social", unread:0},
+  {id:"gmail",    name:"Gmail",     icon:"✉", color:"#EA4335", bgGrad:"linear-gradient(135deg,#4a0a0a,#EA4335)", category:"Productivity", unread:8},
+  {id:"maps",     name:"Maps",      icon:"🗺", color:"#4285F4", bgGrad:"linear-gradient(135deg,#0a1a4a,#4285F4)", category:"Tools", unread:0},
+  {id:"spotify",  name:"Spotify",   icon:"♫", color:"#1DB954", bgGrad:"linear-gradient(135deg,#191414,#1DB954)", category:"Media", unread:0},
+  {id:"youtube",  name:"YouTube",   icon:"▶", color:"#FF0000", bgGrad:"linear-gradient(135deg,#2a0a0a,#FF0000)", category:"Media", unread:2},
+]
+
+const MOCK_MESSAGES: Record<string,MockMessage[]> = {
+  whatsapp: [
+    {id:"wm1",sender:"Budi Santoso",  text:"Bro meeting jam 3 sore ya? Jangan lupa",time:"09:42",unread:true, avatar:"BS",app:"whatsapp"},
+    {id:"wm2",sender:"Sarah Putri",   text:"Makasih ya kemarin udah bantuin 🙏",      time:"09:15",unread:true, avatar:"SP",app:"whatsapp"},
+    {id:"wm3",sender:"Grup Proyek",   text:"File desainnya udah gue upload ke drive",  time:"08:30",unread:true, avatar:"GP",app:"whatsapp"},
+    {id:"wm4",sender:"Mama",          text:"Pulang makan malem bareng ya nak",         time:"08:00",unread:false,avatar:"M", app:"whatsapp"},
+    {id:"wm5",sender:"Rizky",         text:"Gw on the way ke kantor",                  time:"07:45",unread:false,avatar:"R", app:"whatsapp"},
+  ],
+  instagram: [
+    {id:"im1",sender:"@designhub_id",text:"Liked your photo ❤️",                     time:"10:01",unread:true, avatar:"DH",app:"instagram"},
+    {id:"im2",sender:"@naufal_dev",  text:"Mentioned you in a story",                time:"09:50",unread:true, avatar:"ND",app:"instagram"},
+    {id:"im3",sender:"@techasia",    text:"New post: V-Optics featured! 🚀",         time:"09:20",unread:true, avatar:"TA",app:"instagram"},
+  ],
+  telegram: [
+    {id:"tm1",sender:"Dev Indonesia", text:"📢 Update: Next.js 15.3 released",        time:"10:05",unread:true, avatar:"DI",app:"telegram"},
+    {id:"tm2",sender:"Crypto Alert",  text:"BTC +3.2% in last hour",                  time:"09:55",unread:true, avatar:"CA",app:"telegram"},
+    {id:"tm3",sender:"Hasan",         text:"Kapan kita lunch bareng?",                time:"09:10",unread:false,avatar:"H", app:"telegram"},
+  ],
+  gmail: [
+    {id:"gm1",sender:"GitHub",        text:"[V-Optics] New pull request merged",      time:"09:58",unread:true, avatar:"GH",app:"gmail"},
+    {id:"gm2",sender:"Anthropic",     text:"Your Claude API usage report for March",  time:"09:00",unread:true, avatar:"AN",app:"gmail"},
+    {id:"gm3",sender:"Telkom Univ",   text:"Jadwal seminar skripsi - PENTING",        time:"08:20",unread:true, avatar:"TU",app:"gmail"},
+  ],
+  youtube: [
+    {id:"ym1",sender:"Fireship",      text:"New: 100 seconds of V-Optics HUD",        time:"08:45",unread:true, avatar:"F", app:"youtube"},
+    {id:"ym2",sender:"Theo",          text:"Why Smart Glasses Will Replace Phones",   time:"07:30",unread:true, avatar:"T", app:"youtube"},
+  ],
+}
+
+// ── Brand-accurate app icons (inline SVG) ────────────────────────────────────
+function AppIcon({id,size=22}:{id:string;size?:number}) {
+  const s = size
+  switch(id) {
+    case "whatsapp": return (
+      <svg width={s} height={s} viewBox="0 0 32 32" fill="none">
+        <circle cx="16" cy="16" r="16" fill="#25D366"/>
+        <path d="M16 6C10.477 6 6 10.477 6 16c0 1.89.523 3.655 1.432 5.163L6 26l4.98-1.408A9.95 9.95 0 0016 26c5.523 0 10-4.477 10-10S21.523 6 16 6z" fill="#fff"/>
+        <path d="M21.5 18.5c-.3-.15-1.77-.87-2.04-.97-.28-.1-.48-.15-.68.15-.2.3-.77.97-.94 1.17-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.47-.89-.79-1.48-1.76-1.66-2.06-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.07-.15-.68-1.63-.93-2.23-.24-.58-.49-.5-.68-.51-.17 0-.37-.02-.57-.02-.2 0-.52.07-.8.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.88 1.22 3.08c.15.2 2.1 3.2 5.09 4.49.71.31 1.27.49 1.7.63.72.23 1.37.2 1.88.12.57-.09 1.77-.72 2.02-1.42.25-.7.25-1.3.17-1.42-.07-.12-.27-.2-.57-.35z" fill="#25D366"/>
+      </svg>
+    )
+    case "instagram": return (
+      <svg width={s} height={s} viewBox="0 0 32 32" fill="none">
+        <defs>
+          <radialGradient id="ig1" cx="30%" cy="107%" r="150%">
+            <stop offset="0%" stopColor="#fdf497"/>
+            <stop offset="5%" stopColor="#fdf497"/>
+            <stop offset="45%" stopColor="#fd5949"/>
+            <stop offset="60%" stopColor="#d6249f"/>
+            <stop offset="90%" stopColor="#285AEB"/>
+          </radialGradient>
+        </defs>
+        <rect width="32" height="32" rx="8" fill="url(#ig1)"/>
+        <rect x="8" y="8" width="16" height="16" rx="4.5" stroke="#fff" strokeWidth="2" fill="none"/>
+        <circle cx="16" cy="16" r="4" stroke="#fff" strokeWidth="2" fill="none"/>
+        <circle cx="21.5" cy="10.5" r="1.2" fill="#fff"/>
+      </svg>
+    )
+    case "telegram": return (
+      <svg width={s} height={s} viewBox="0 0 32 32" fill="none">
+        <circle cx="16" cy="16" r="16" fill="#2AABEE"/>
+        <path d="M7 15.5l3.5 1.3 1.4 4.3 1.7-2 3.7 2.7 4.7-12.1-15 5.8z" fill="#c8daea"/>
+        <path d="M10.5 16.8l.5 4 1.7-2" fill="#a9c9dd"/>
+        <path d="M10.5 16.8l8.5 6.3 3-14-11.5 7.7z" fill="#fff"/>
+      </svg>
+    )
+    case "twitter": return (
+      <svg width={s} height={s} viewBox="0 0 32 32" fill="none">
+        <rect width="32" height="32" rx="8" fill="#000"/>
+        <path d="M17.75 14.77L24.16 7.5h-1.52l-5.56 6.47-4.44-6.47H7.5l6.72 9.79-6.72 7.71h1.52l5.88-6.84 4.7 6.84H24.5l-6.75-9.73zm-2.08 2.42l-.68-.98-5.43-7.76H11.8l4.37 6.25.68.98 5.68 8.12h-2.32l-4.64-6.61z" fill="#fff"/>
+      </svg>
+    )
+    case "gmail": return (
+      <svg width={s} height={s} viewBox="0 0 32 32" fill="none">
+        <rect width="32" height="32" rx="4" fill="#fff"/>
+        <path d="M4 10v12h4V14l8 6 8-6v8h4V10l-12 9L4 10z" fill="#EA4335"/>
+        <path d="M4 10l12 9 12-9H4z" fill="#FBBC05"/>
+        <path d="M28 10h-4v12h4V10z" fill="#34A853"/>
+        <path d="M4 10H8v12H4V10z" fill="#C5221F"/>
+      </svg>
+    )
+    case "maps": return (
+      <svg width={s} height={s} viewBox="0 0 32 32" fill="none">
+        <rect width="32" height="32" rx="6" fill="#fff"/>
+        <path d="M10 8l6 2 6-2v16l-6 2-6-2V8z" fill="#34A853"/>
+        <path d="M10 8l6 2V26l-6-2V8z" fill="#FBBC04"/>
+        <path d="M16 10l6-2v16l-6 2V10z" fill="#4285F4"/>
+        <circle cx="16" cy="14" r="2.5" fill="#EA4335"/>
+        <path d="M16 16.5s-3.5-3.2-3.5-5.5a3.5 3.5 0 017 0c0 2.3-3.5 5.5-3.5 5.5z" fill="#EA4335" opacity=".3"/>
+      </svg>
+    )
+    case "spotify": return (
+      <svg width={s} height={s} viewBox="0 0 32 32" fill="none">
+        <circle cx="16" cy="16" r="16" fill="#1DB954"/>
+        <path d="M10 20.5c4.5-1.5 9-1 13 .5" stroke="#000" strokeWidth="2" strokeLinecap="round"/>
+        <path d="M9 17c5-1.8 10.5-1.3 14.5.7" stroke="#000" strokeWidth="2" strokeLinecap="round"/>
+        <path d="M8.5 13.5c6-2.2 12-1.5 16 1" stroke="#000" strokeWidth="2.2" strokeLinecap="round"/>
+      </svg>
+    )
+    case "youtube": return (
+      <svg width={s} height={s} viewBox="0 0 32 32" fill="none">
+        <rect width="32" height="32" rx="7" fill="#FF0000"/>
+        <path d="M26 11.5s-.25-1.75-1-2.5c-.96-1-2.04-1.01-2.53-1.07C19.53 7.75 16 7.75 16 7.75s-3.53 0-6.47.18c-.49.06-1.57.07-2.53 1.07-.75.75-1 2.5-1 2.5S5.75 13.5 5.75 15.5v1.87c0 2 .25 4 .25 4s.25 1.75 1 2.5c.96 1 2.22.97 2.78 1.07C11.75 25.1 16 25.13 16 25.13s3.53 0 6.47-.21c.49-.06 1.57-.07 2.53-1.07.75-.75 1-2.5 1-2.5S26.25 19.37 26.25 17.37V15.5C26.25 13.5 26 11.5 26 11.5z" fill="#FF0000"/>
+        <path d="M13.5 20l7-4.5-7-4.5V20z" fill="#fff"/>
+      </svg>
+    )
+    default: return <span style={{fontSize:s*0.7}}>📱</span>
+  }
+}
+
+
+function AppsPanel({accent,accentDim,accentFaint,lang,theme,onIncomingCall}:{
+  accent:string;accentDim:string;accentFaint:string;lang:string;theme:any;
+  onIncomingCall?:(call:IncomingCall)=>void
+}) {
+  const [activeApp,  setActiveApp]  = useState<MockApp|null>(null)
+  const [loginState, setLoginState] = useState<Record<string,boolean>>({})
+  const [loginForm,  setLoginForm]  = useState({email:"",pass:""})
+  const [loggingIn,  setLoggingIn]  = useState(false)
+  const T = theme
+
+  const isLoggedIn = (appId:string) => loginState[appId] ?? false
+  const msgs = activeApp ? (MOCK_MESSAGES[activeApp.id]||[]) : []
+  const totalUnread = MOCK_APPS.reduce((a,b)=>a+b.unread,0)
+
+  const doLogin = () => {
+    if (!loginForm.email || !loginForm.pass) return
+    setLoggingIn(true)
+    setTimeout(()=>{
+      setLoginState(s=>({...s,[activeApp!.id]:true}))
+      setLoggingIn(false)
+    }, 1200)
+  }
+
+  const simulateCall = (app:MockApp) => {
+    const callerMsgs = MOCK_MESSAGES[app.id]
+    const caller = callerMsgs?.[0]?.sender ?? "Unknown"
+    onIncomingCall?.({
+      id: `call_${Date.now()}`,
+      caller, app: app.name,
+      avatar: caller.split(" ").map((w:string)=>w[0]).join("").slice(0,2).toUpperCase(),
+      duration: 0,
+    })
+  }
+
+  // ── App detail / inbox ──
+  if (activeApp) {
+    const loggedIn = isLoggedIn(activeApp.id)
+    return (
+      <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+        {/* App Header */}
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexShrink:0,
+          padding:"6px 8px",borderRadius:8,background:activeApp.bgGrad,position:"relative",overflow:"hidden"}}>
+          <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.35)"}}/>
+          <div style={{position:"relative",fontSize:22,zIndex:1}}>{activeApp.icon}</div>
+          <div style={{position:"relative",flex:1,zIndex:1}}>
+            <div style={{fontSize:12,fontWeight:"bold",color:"#fff"}}>{activeApp.name}</div>
+            <div style={{fontSize:8,color:"rgba(255,255,255,0.65)"}}>
+              {loggedIn
+                ? (lang==="en"?"Connected · Mock Mode":"Terhubung · Mode Mock")
+                : (lang==="en"?"Not connected":"Belum terhubung")}
+            </div>
+          </div>
+          <div style={{position:"relative",display:"flex",gap:5,zIndex:1}}>
+            {loggedIn && ["whatsapp","telegram"].includes(activeApp.id) && (
+              <button onClick={()=>simulateCall(activeApp)}
+                style={{padding:"4px 8px",borderRadius:20,fontSize:8,cursor:"pointer",border:"none",
+                  background:"rgba(255,255,255,0.2)",color:"#fff",backdropFilter:"blur(4px)"}}>
+                📞 {lang==="en"?"Simulate Call":"Simulasi Telpon"}
+              </button>
+            )}
+            <button onClick={()=>setActiveApp(null)}
+              style={{padding:"4px 8px",borderRadius:20,fontSize:8,cursor:"pointer",border:"none",
+                background:"rgba(255,255,255,0.2)",color:"#fff"}}>
+              ← {lang==="en"?"Back":"Kembali"}
+            </button>
+          </div>
+        </div>
+
+        {!loggedIn ? (
+          /* Login Form */
+          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
+            <div style={{fontSize:30,marginBottom:4}}>{activeApp.icon}</div>
+            <div style={{fontSize:11,color:T.textPrimary,fontWeight:"bold"}}>{lang==="en"?`Sign in to ${activeApp.name}`:`Masuk ke ${activeApp.name}`}</div>
+            <div style={{fontSize:8,color:T.textMuted,marginBottom:8,textAlign:"center",lineHeight:1.5}}>
+              {lang==="en"?"Demo mode — credentials are not stored":"Mode demo — data login tidak tersimpan"}
+            </div>
+            <div style={{width:"100%",maxWidth:200,display:"flex",flexDirection:"column",gap:6}}>
+              <input value={loginForm.email}
+                onChange={e=>setLoginForm(f=>({...f,email:e.target.value}))}
+                placeholder={lang==="en"?"Email / Username":"Email / Username"}
+                style={{padding:"7px 10px",borderRadius:6,border:`1px solid ${accentDim}`,
+                  background:T.bgCard,color:T.textPrimary,fontSize:9,outline:"none",fontFamily:"monospace"}}
+              />
+              <input type="password" value={loginForm.pass}
+                onChange={e=>setLoginForm(f=>({...f,pass:e.target.value}))}
+                onKeyDown={e=>e.key==="Enter"&&doLogin()}
+                placeholder={lang==="en"?"Password":"Kata sandi"}
+                style={{padding:"7px 10px",borderRadius:6,border:`1px solid ${accentDim}`,
+                  background:T.bgCard,color:T.textPrimary,fontSize:9,outline:"none",fontFamily:"monospace"}}
+              />
+              <button onClick={doLogin} disabled={loggingIn}
+                style={{padding:"8px",borderRadius:6,cursor:"pointer",
+                  background:loggingIn?accentFaint:`${accent}`,
+                  border:`1px solid ${accent}`,color:T.isLight?"#fff":"#000",
+                  fontSize:9,fontFamily:"monospace",fontWeight:"bold",letterSpacing:1,
+                  display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                {loggingIn
+                  ? <><div style={{width:10,height:10,border:"2px solid currentColor",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>{lang==="en"?"Connecting...":"Menghubungkan..."}</>
+                  : (lang==="en"?`Sign In`:`Masuk`)}
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Message List */
+          <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:5}}>
+            {msgs.length===0
+              ? <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",
+                  color:accentDim,fontSize:9}}>No messages</div>
+              : msgs.map(msg=>(
+                  <div key={msg.id}
+                    style={{display:"flex",gap:8,padding:"7px 8px",borderRadius:7,
+                      background:msg.unread?`${accent}0a`:T.bgCard,
+                      border:`1px solid ${msg.unread?accentDim:T.borderFaint}`,
+                      cursor:"pointer",transition:"all 0.15s"}}
+                    onMouseEnter={e=>{e.currentTarget.style.borderColor=accent}}
+                    onMouseLeave={e=>{e.currentTarget.style.borderColor=msg.unread?accentDim:T.borderFaint}}>
+                    {/* Avatar */}
+                    <div style={{width:28,height:28,borderRadius:"50%",flexShrink:0,
+                      background:activeApp.bgGrad,display:"flex",alignItems:"center",
+                      justifyContent:"center",fontSize:9,fontWeight:"bold",color:"#fff"}}>
+                      {msg.avatar}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
+                        <span style={{fontSize:9.5,color:T.textPrimary,fontWeight:"bold",
+                          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{msg.sender}</span>
+                        <span style={{fontSize:7.5,color:accentDim,flexShrink:0,marginLeft:4}}>{msg.time}</span>
+                      </div>
+                      <div style={{fontSize:8.5,color:T.textSecondary,
+                        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{msg.text}</div>
+                    </div>
+                    {msg.unread&&(
+                      <div style={{width:7,height:7,borderRadius:"50%",flexShrink:0,
+                        background:accent,alignSelf:"center",boxShadow:`0 0 6px ${accent}`}}/>
+                    )}
+                  </div>
+                ))
+            }
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── App Grid ──
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexShrink:0}}>
+        <div>
+          <div style={{fontSize:11,fontWeight:"bold",color:accent}}>◫ {lang==="en"?"App Hub":"Hub Aplikasi"}</div>
+          <div style={{fontSize:7.5,color:accentDim}}>
+            {totalUnread>0 ? `${totalUnread} ${lang==="en"?"unread":"belum dibaca"}` : lang==="en"?"All caught up":"Semua sudah dibaca"}
+          </div>
+        </div>
+        <div style={{fontSize:7.5,color:accentDim,border:`1px solid ${accentDim}`,padding:"2px 7px",borderRadius:20}}>
+          {lang==="en"?"Mock Mode":"Mode Mock"}
+        </div>
+      </div>
+
+      {/* App grid */}
+      <div style={{flex:1,overflowY:"auto",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,alignContent:"start"}}>
+        {MOCK_APPS.map(app=>(
+          <div key={app.id} onClick={()=>setActiveApp(app)}
+            style={{display:"flex",flexDirection:"column",alignItems:"center",
+              padding:"8px 4px",borderRadius:10,cursor:"pointer",
+              border:`1px solid ${accentDim}`,background:T.bgCard,
+              transition:"all 0.2s",position:"relative"}}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor=app.color;e.currentTarget.style.transform="scale(1.04)"}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor=accentDim;e.currentTarget.style.transform="scale(1)"}}>
+            {/* Unread badge */}
+            {app.unread>0&&(
+              <div style={{position:"absolute",top:4,right:4,minWidth:14,height:14,
+                borderRadius:7,background:app.color,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:7,fontWeight:"bold",color:"#fff",padding:"0 3px",
+                boxShadow:`0 0 6px ${app.color}88`}}>
+                {app.unread>9?"9+":app.unread}
+              </div>
+            )}
+            {/* Icon */}
+            <div style={{width:40,height:40,borderRadius:12,
+              display:"flex",alignItems:"center",justifyContent:"center",
+              marginBottom:5,overflow:"hidden",
+              boxShadow:`0 2px 14px ${app.color}55`,flexShrink:0}}>
+              <AppIcon id={app.id} size={40}/>
+            </div>
+            <div style={{fontSize:7.5,color:T.textPrimary,textAlign:"center",
+              fontWeight:"bold",lineHeight:1.2,
+              overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+              width:"100%",padding:"0 2px"}}>
+              {app.name}
+            </div>
+            {/* Login status dot */}
+            <div style={{width:5,height:5,borderRadius:"50%",marginTop:3,
+              background:isLoggedIn(app.id)?app.color:accentDim,
+              boxShadow:isLoggedIn(app.id)?`0 0 5px ${app.color}`:undefined}}/>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INCOMING CALL BUBBLE — floating overlay
+// ─────────────────────────────────────────────────────────────────────────────
+function IncomingCallBubble({call,accent,accentDim,lang,tk,onAnswer,onDecline}:{
+  call:IncomingCall; accent:string; accentDim:string; lang:string; tk?:any
+  onAnswer:()=>void; onDecline:()=>void
+}) {
+  const [elapsed, setElapsed] = useState(0)
+  const [answered, setAnswered] = useState(false)
+  const [callTime, setCallTime] = useState(0)
 
   useEffect(()=>{
-    setLoading(true)
-    // Simulate load delay — replace with real API: fetch('/api/news')
-    setTimeout(()=>{ setNews(getPlaceholderNews(lang)); setLoading(false) }, 600)
-  },[lang])
+    if (answered) {
+      const i = setInterval(()=>setCallTime(t=>t+1),1000)
+      return ()=>clearInterval(i)
+    }
+    const i = setInterval(()=>setElapsed(t=>t+1),1000)
+    return ()=>clearInterval(i)
+  },[answered])
 
-  const categories = lang==="en"
-    ? ["all","Tech","Finance","World","Space","Health","Auto"]
-    : ["all","Teknologi","Ekonomi","Nasional","Olahraga","Kesehatan","Transportasi"]
+  const fmt = (s:number) => `${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`
 
+  return (
+    <div style={{
+      position:"absolute",top:8,right:8,zIndex:50,
+      width:190,borderRadius:14,overflow:"hidden",
+      background:tk?.bgSurface??"rgba(9,9,11,0.95)",
+      border:`1.5px solid ${answered?"#25D366":accent}`,
+      boxShadow:`0 8px 32px rgba(0,0,0,0.7),0 0 20px ${answered?"#25D36644":`${accent}44`}`,
+      backdropFilter:"blur(12px)",
+      animation:"fadeIn 0.3s ease",
+    }}>
+      {/* Top gradient bar */}
+      <div style={{height:3,background:answered?"linear-gradient(90deg,#25D366,#128C7E)":
+        `linear-gradient(90deg,${accent},${accentDim})`}}/>
+
+      <div style={{padding:"10px 12px"}}>
+        {/* App badge */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{fontSize:7.5,color:accentDim,letterSpacing:1}}>
+            {call.app.toUpperCase()} {lang==="en"?"CALL":"TELEPON"}
+          </div>
+          <div style={{fontSize:7.5,color:answered?"#25D366":accent}}>
+            {answered?fmt(callTime):elapsed>0?`${elapsed}s`:"Ringing..."}
+          </div>
+        </div>
+
+        {/* Caller info */}
+        <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:10}}>
+          <div style={{
+            width:38,height:38,borderRadius:"50%",flexShrink:0,
+            background:answered?"linear-gradient(135deg,#075E54,#25D366)":
+              `linear-gradient(135deg,${accentDim},${accent})`,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:13,fontWeight:"bold",color:"#fff",
+            boxShadow:answered?`0 0 12px #25D36666`:`0 0 12px ${accent}66`,
+            animation:answered?"none":"pulse 1.5s ease infinite",
+          }}>
+            {call.avatar}
+          </div>
+          <div>
+            <div style={{fontSize:11.5,fontWeight:"bold",color:tk?.text??"#fff",marginBottom:2}}>{call.caller}</div>
+            <div style={{fontSize:8,color:"rgba(255,255,255,0.55)"}}>
+              {answered?(lang==="en"?"Call in progress":"Sedang dalam panggilan"):(lang==="en"?"Incoming call":"Panggilan masuk")}
+            </div>
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        {!answered ? (
+          <div style={{display:"flex",gap:7}}>
+            <button onClick={()=>{setAnswered(true);onAnswer()}}
+              style={{flex:1,padding:"7px",borderRadius:8,cursor:"pointer",border:"none",
+                background:"linear-gradient(135deg,#25D366,#128C7E)",color:"#fff",
+                fontSize:9,fontWeight:"bold",
+                boxShadow:"0 2px 8px rgba(37,211,102,0.4)",transition:"all 0.15s"}}
+              onMouseEnter={e=>{e.currentTarget.style.transform="scale(1.05)"}}
+              onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)"}}>
+              📞 {lang==="en"?"Answer":"Angkat"}
+            </button>
+            <button onClick={onDecline}
+              style={{flex:1,padding:"7px",borderRadius:8,cursor:"pointer",border:"none",
+                background:"linear-gradient(135deg,#aa2222,#ff4444)",color:"#fff",
+                fontSize:9,fontWeight:"bold",
+                boxShadow:"0 2px 8px rgba(255,68,68,0.4)",transition:"all 0.15s"}}
+              onMouseEnter={e=>{e.currentTarget.style.transform="scale(1.05)"}}
+              onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)"}}>
+              ✕ {lang==="en"?"Decline":"Tolak"}
+            </button>
+          </div>
+        ) : (
+          <button onClick={onDecline}
+            style={{width:"100%",padding:"7px",borderRadius:8,cursor:"pointer",border:"none",
+              background:"linear-gradient(135deg,#aa2222,#ff4444)",color:"#fff",
+              fontSize:9,fontWeight:"bold",boxShadow:"0 2px 8px rgba(255,68,68,0.4)"}}>
+            ✕ {lang==="en"?"End Call":"Tutup Telepon"} ({fmt(callTime)})
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Inline Article Reader — fetches & strips article body inside HUD ─────────
+function InlineArticleReader({url,accent,accentDim,T,lang}:{
+  url:string; accent:string; accentDim:string; T:any; lang:string
+}) {
+  const [state, setState] = useState<"idle"|"loading"|"done"|"error">("idle")
+  const [text, setText] = useState("")
+
+  const fetchArticle = async () => {
+    setState("loading")
+    try {
+      // Use allorigins.win CORS proxy to fetch article HTML
+      const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`
+      const res = await fetch(proxy, {signal: AbortSignal.timeout(8000)})
+      const data = await res.json()
+      const html = data.contents ?? ""
+      // Extract readable text: strip scripts/styles/tags, then clean up
+      const noScript = html.replace(/<script[\s\S]*?<\/script>/gi,"")
+        .replace(/<style[\s\S]*?<\/style>/gi,"")
+        .replace(/<noscript[\s\S]*?<\/noscript>/gi,"")
+      // Try to find article/main body
+      const bodyMatch = noScript.match(/<article[\s\S]*?<\/article>/i)
+        || noScript.match(/<main[\s\S]*?<\/main>/i)
+        || noScript.match(/<div[^>]+(?:article|content|story|post)[^>]*>([\s\S]{200,}?)<\/div>/i)
+      const rawHtml = bodyMatch ? bodyMatch[0] : noScript
+      // Strip all tags and decode entities
+      const raw = rawHtml
+        .replace(/<[^>]+>/g," ")
+        .replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">")
+        .replace(/&nbsp;/g," ").replace(/&quot;/g,'"').replace(/&#\d+;/g," ")
+        .replace(/\s{3,}/g,"\n\n").trim()
+      if (raw.length < 100) throw new Error("Content not readable")
+      setText(raw.slice(0, 3000))
+      setState("done")
+    } catch {
+      setState("error")
+    }
+  }
+
+  if (state === "idle") return (
+    <button onClick={fetchArticle}
+      style={{width:"100%",padding:"7px 10px",borderRadius:6,cursor:"pointer",
+        border:`1px solid ${accentDim}`,background:`${accent}0f`,
+        color:accent,fontSize:8.5,fontFamily:"monospace",letterSpacing:0.8,
+        display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+      <span style={{fontSize:10}}>⬡</span>
+      {lang==="en"?"LOAD FULL ARTICLE IN HUD":"BACA ARTIKEL LENGKAP DI SINI"}
+    </button>
+  )
+  if (state === "loading") return (
+    <div style={{padding:"10px",borderRadius:6,border:`1px solid ${accentDim}`,
+      background:`${accent}08`,display:"flex",alignItems:"center",gap:8}}>
+      <div style={{width:12,height:12,border:`1.5px solid ${accent}`,
+        borderTopColor:"transparent",borderRadius:"50%",flexShrink:0,
+        animation:"spin 0.8s linear infinite"}}/>
+      <span style={{fontSize:8,color:accentDim,letterSpacing:0.8}}>
+        {lang==="en"?"FETCHING ARTICLE...":"MENGAMBIL ARTIKEL..."}
+      </span>
+    </div>
+  )
+  if (state === "error") return (
+    <div style={{padding:"8px 10px",borderRadius:6,border:`1px solid #f8747444`,
+      background:"#f8747408",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+      <span style={{fontSize:8,color:"#f87474"}}>
+        {lang==="en"?"Could not load article content":"Gagal memuat konten artikel"}
+      </span>
+      <a href={url} target="_blank" rel="noreferrer"
+        style={{fontSize:7.5,color:accent,textDecoration:"none",
+          border:`1px solid ${accentDim}`,padding:"2px 8px",borderRadius:20,whiteSpace:"nowrap"}}>
+        {lang==="en"?"Open →":"Buka →"}
+      </a>
+    </div>
+  )
+  // done
+  return (
+    <div style={{borderRadius:6,border:`1px solid ${accentDim}`,
+      background:`${accent}08`,overflow:"hidden"}}>
+      <div style={{padding:"5px 10px",borderBottom:`1px solid ${accentDim}`,
+        display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <span style={{fontSize:7.5,color:accent,letterSpacing:0.8}}>
+          ⬡ {lang==="en"?"ARTICLE CONTENT":"ISI ARTIKEL"}
+        </span>
+        <span style={{fontSize:7,color:accentDim}}>{text.length} chars</span>
+      </div>
+      <div style={{maxHeight:180,overflowY:"auto",padding:"8px 10px",
+        fontSize:9,color:T.textSecondary,lineHeight:1.75,whiteSpace:"pre-wrap",
+        scrollbarWidth:"thin"}}>
+        {text}
+      </div>
+    </div>
+  )
+}
+
+function HomePanelNews({accent,accentDim,accentFaint,lang,theme}:{accent:string;accentDim:string;accentFaint:string;lang:string;theme:any}) {
+  const [news,       setNews]       = useState<NewsArticle[]>([])
+  const [loading,    setLoading]    = useState(true)
+  const [error,      setError]      = useState("")
+  const [selected,   setSelected]   = useState<NewsArticle|null>(null)
+  const [category,   setCategory]   = useState("all")
+  const [fetchingAI, setFetchingAI] = useState(false)
+  const [aiSummary,  setAiSummary]  = useState("")
+  const [lastFetch,  setLastFetch]  = useState(0)
+
+  const fetchNews = async (force=false) => {
+    if (!force && Date.now()-lastFetch < 5*60*1000 && news.length>0) return
+    setLoading(true); setError("")
+    try {
+      const res = await fetch(`/api/news?lang=${lang}&t=${Date.now()}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      if (data.articles?.length>0) {
+        setNews(data.articles)
+        setLastFetch(Date.now())
+      } else {
+        setError(lang==="en"?"No articles found":"Berita tidak tersedia")
+      }
+    } catch(e:any) {
+      setError(lang==="en"?`Failed to load news: ${e.message}`:`Gagal memuat berita: ${e.message}`)
+    }
+    setLoading(false)
+  }
+
+  useEffect(()=>{ fetchNews() },[lang])
+
+  const allCats = ["all", ...Array.from(new Set(news.map(n=>n.category)))]
   const filtered = category==="all" ? news : news.filter(n=>n.category===category)
 
   const askAI = async (article: NewsArticle) => {
     setFetchingAI(true); setAiSummary("")
     try {
       const prompt = lang==="en"
-        ? `Give a 2-sentence insightful analysis of this news: "${article.title}". What's the impact and what should people know?`
-        : `Berikan analisis 2 kalimat yang insightful tentang berita ini: "${article.title}". Apa dampaknya dan apa yang perlu diketahui?`
-      const res = await fetch("/api/claude-vision",{
-        method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({prompt, mode:"voice", textOnly:true})
-      })
+        ? `Give a 2-sentence insightful analysis of this news for smart glasses display: "${article.title}". What's the key impact?`
+        : `Berikan analisis 2 kalimat yang insightful tentang berita ini untuk tampilan kacamata pintar: "${article.title}". Apa dampak utamanya?`
+      const res = await fetch("/api/claude-vision",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,mode:"voice",textOnly:true})})
       const data = await res.json()
-      setAiSummary(data.result?.replace(/```json|```/g,"").trim() || "")
+      setAiSummary(data.result?.replace(/```json|```/g,"").trim()||"")
     } catch { setAiSummary(lang==="en"?"AI unavailable":"AI tidak tersedia") }
     setFetchingAI(false)
   }
 
+  const T = theme
+
+  // ── Article Detail View ──
   if (selected) return (
     <div style={{display:"flex",flexDirection:"column",height:"100%",gap:0}}>
-      {/* Article detail */}
       <div style={{flex:1,overflowY:"auto",padding:"0 2px"}}>
-        <div style={{height:80,borderRadius:8,marginBottom:8,
+        {/* Hero */}
+        <div style={{height:84,borderRadius:8,marginBottom:10,
           background:selected.imageGradient,
           display:"flex",alignItems:"center",justifyContent:"center",
-          fontSize:36,position:"relative",overflow:"hidden"}}>
-          <div style={{position:"absolute",inset:0,
-            background:"linear-gradient(to bottom,transparent 40%,rgba(0,0,0,0.6))"}}/>
+          fontSize:34,position:"relative",overflow:"hidden",flexShrink:0}}>
+          {selected.imageUrl&&(
+            <img src={selected.imageUrl} alt="" style={{position:"absolute",inset:0,
+              width:"100%",height:"100%",objectFit:"cover",opacity:0.55}}
+              onError={e=>{(e.target as HTMLImageElement).style.display="none"}}/>
+          )}
+          <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom,transparent 40%,rgba(0,0,0,0.65))"}}/>
           <span style={{position:"relative",zIndex:1}}>{selected.emoji}</span>
           <div style={{position:"absolute",bottom:6,left:10,right:10,zIndex:1,
             display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
             <span style={{fontSize:7,padding:"2px 7px",borderRadius:20,
-              background:`${accent}33`,color:accent,border:`1px solid ${accent}55`}}>
+              background:`${accent}44`,color:accent,border:`1px solid ${accent}66`}}>
               {selected.category}
             </span>
-            <span style={{fontSize:7,color:"#ffffff88"}}>{selected.source} · {selected.time}</span>
+            <span style={{fontSize:7,color:"rgba(255,255,255,0.75)"}}>{selected.source} · {selected.time}</span>
           </div>
         </div>
-
-        <div style={{fontSize:12,fontWeight:"bold",color:"#e0f0ff",lineHeight:1.5,
-          marginBottom:8,fontFamily:"sans-serif"}}>
-          {selected.title}
-        </div>
-        <div style={{fontSize:10,color:"#9ab",lineHeight:1.7,marginBottom:10}}>
-          {selected.summary}
-        </div>
-
-        {/* AI Analysis */}
-        <div style={{padding:"8px 10px",borderRadius:8,
-          background:`${accent}0c`,border:`1px solid ${accentDim}`,marginBottom:8}}>
-          <div style={{fontSize:8,color:accentDim,letterSpacing:1,marginBottom:6,
-            display:"flex",alignItems:"center",gap:6}}>
+        <div style={{fontSize:12,fontWeight:"bold",color:T.textPrimary,lineHeight:1.5,marginBottom:8,fontFamily:"sans-serif"}}>{selected.title}</div>
+        <div style={{fontSize:10,color:T.textSecondary,lineHeight:1.7,marginBottom:10}}>{selected.summary}</div>
+        {/* AI Insight */}
+        <div style={{padding:"8px 10px",borderRadius:8,background:`${accent}0c`,border:`1px solid ${accentDim}`,marginBottom:8}}>
+          <div style={{fontSize:8,color:accentDim,letterSpacing:1,marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
             <span style={{color:accent}}>⬡</span> AI INSIGHT
           </div>
           {aiSummary
-            ? <div style={{fontSize:9.5,color:"#d0e8f5",lineHeight:1.7}}>{aiSummary}</div>
+            ? <div style={{fontSize:9.5,color:T.textPrimary,lineHeight:1.7}}>{aiSummary}</div>
             : fetchingAI
               ? <div style={{display:"flex",gap:4,alignItems:"center",padding:"4px 0"}}>
-                  {[0,1,2].map(i=>(
-                    <div key={i} style={{width:5,height:5,borderRadius:"50%",
-                      background:accent,opacity:0.6,animation:"bounce 1.2s ease infinite",
-                      animationDelay:`${i*0.2}s`}}/>
-                  ))}
+                  {[0,1,2].map(i=><div key={i} style={{width:5,height:5,borderRadius:"50%",background:accent,opacity:0.6,animation:"bounce 1.2s ease infinite",animationDelay:`${i*0.2}s`}}/>)}
                 </div>
-              : <button onClick={()=>askAI(selected)}
-                  style={{fontSize:8,color:accent,background:"none",border:`1px solid ${accentDim}`,
-                    borderRadius:20,padding:"3px 10px",cursor:"pointer",letterSpacing:0.5}}>
-                  ✦ Minta analisis AI
+              : <button onClick={()=>askAI(selected)} style={{fontSize:8,color:accent,background:"none",border:`1px solid ${accentDim}`,borderRadius:20,padding:"3px 10px",cursor:"pointer"}}>
+                  ✦ {lang==="en"?"Get AI analysis":"Minta analisis AI"}
                 </button>
           }
         </div>
+        {selected.url&&(
+          <InlineArticleReader url={selected.url} accent={accent} accentDim={accentDim} T={T} lang={lang}/>
+        )}
       </div>
-
-      <div style={{display:"flex",gap:5,flexShrink:0,paddingTop:6,
-        borderTop:`1px solid ${accentDim}`}}>
+      <div style={{display:"flex",gap:5,flexShrink:0,paddingTop:6,borderTop:`1px solid ${accentDim}`}}>
         <button onClick={()=>{setSelected(null);setAiSummary("")}}
           style={{flex:1,padding:"6px",borderRadius:6,cursor:"pointer",
-            border:`1px solid ${accentDim}`,background:accentFaint,
-            color:accentDim,fontSize:9,fontFamily:"monospace"}}>
-          ← KEMBALI
-        </button>
+            border:`1px solid ${accentDim}`,background:T.bgInset,
+            color:T.textSecondary,fontSize:9,fontFamily:"monospace"}}>← {lang==="en"?"Back":"Kembali"}</button>
         {!aiSummary&&!fetchingAI&&(
           <button onClick={()=>askAI(selected)}
             style={{flex:2,padding:"6px",borderRadius:6,cursor:"pointer",
               border:`1px solid ${accent}`,background:`${accent}18`,
-              color:accent,fontSize:9,fontFamily:"monospace",letterSpacing:1}}>
-            ⬡ ANALISIS AI
-          </button>
+              color:accent,fontSize:9,fontFamily:"monospace",letterSpacing:1}}>⬡ {lang==="en"?"AI Analysis":"Analisis AI"}</button>
         )}
       </div>
     </div>
   )
 
+  // ── Feed View ──
   return (
     <div style={{display:"flex",flexDirection:"column",height:"100%",gap:0}}>
       {/* Header */}
-      <div style={{display:"flex",alignItems:"center",gap:0,
-        marginBottom:6,flexShrink:0}}>
+      <div style={{display:"flex",alignItems:"center",marginBottom:6,flexShrink:0}}>
         <div style={{flex:1}}>
           <div style={{fontSize:11,fontWeight:"bold",color:accent,letterSpacing:0.5}}>
-            {lang==="en"?"Today's News":"Berita Hari Ini"}
+            {lang==="en"?"📰 Live News Feed":"📰 Feed Berita Langsung"}
           </div>
           <div style={{fontSize:7.5,color:accentDim}}>
-            {lang==="en"?"Personalized feed · powered by V-Optics AI":"Feed personal · bertenaga V-Optics AI"}
+            {loading?"memuat...":error?"⚠ error":
+             `${news.length} artikel · ${new Date().toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"})}`}
           </div>
         </div>
-        <div style={{fontSize:8,color:accentDim,letterSpacing:0.5}}>
-          {new Date().toLocaleDateString(lang==="en"?"en-US":"id-ID",
-            {weekday:"short",month:"short",day:"numeric"})}
-        </div>
+        <button onClick={()=>fetchNews(true)}
+          style={{padding:"3px 8px",borderRadius:20,fontSize:7.5,cursor:"pointer",
+            border:`1px solid ${accentDim}`,background:accentFaint,color:accentDim,
+            letterSpacing:0.5,transition:"all 0.15s"}}
+          onMouseEnter={e=>{e.currentTarget.style.color=accent;e.currentTarget.style.borderColor=accent}}
+          onMouseLeave={e=>{e.currentTarget.style.color=accentDim;e.currentTarget.style.borderColor=accentDim}}>
+          ↻ {lang==="en"?"Refresh":"Perbarui"}
+        </button>
       </div>
 
       {/* Category pills */}
-      <div style={{display:"flex",gap:4,overflowX:"auto",marginBottom:7,
-        paddingBottom:3,flexShrink:0,
-        scrollbarWidth:"none"}}>
-        {categories.map(c=>(
+      <div style={{display:"flex",gap:4,overflowX:"auto",marginBottom:7,paddingBottom:3,flexShrink:0,scrollbarWidth:"none"}}>
+        {allCats.map(c=>(
           <div key={c} onClick={()=>setCategory(c)}
-            style={{padding:"3px 10px",borderRadius:20,fontSize:7.5,
-              whiteSpace:"nowrap",cursor:"pointer",transition:"all 0.15s",letterSpacing:0.3,
+            style={{padding:"3px 10px",borderRadius:20,fontSize:7.5,whiteSpace:"nowrap",
+              cursor:"pointer",transition:"all 0.15s",letterSpacing:0.3,
               background:category===c?`${accent}22`:accentFaint,
               border:`1px solid ${category===c?accent:accentDim}`,
               color:category===c?accent:accentDim}}>
@@ -186,73 +728,90 @@ function HomePanelNews({accent,accentDim,accentFaint,lang}:{accent:string;accent
         ))}
       </div>
 
-      {/* News grid */}
+      {/* Content */}
       <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,minHeight:0}}>
-        {loading ? (
-          <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-            <div style={{width:16,height:16,border:`2px solid ${accent}`,
-              borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
-            <span style={{fontSize:9,color:accentDim,letterSpacing:1}}>LOADING...</span>
+        {loading&&(
+          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}>
+            <div style={{width:20,height:20,border:`2px solid ${accent}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+            <span style={{fontSize:9,color:accentDim,letterSpacing:1}}>
+              {lang==="en"?"FETCHING LIVE NEWS...":"MENGAMBIL BERITA LANGSUNG..."}
+            </span>
           </div>
-        ) : (
+        )}
+        {!loading&&error&&(
+          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}>
+            <div style={{fontSize:9,color:"#f88",textAlign:"center",lineHeight:1.6}}>{error}</div>
+            <button onClick={()=>fetchNews(true)}
+              style={{padding:"5px 14px",borderRadius:20,fontSize:8,cursor:"pointer",
+                border:`1px solid ${accent}`,background:`${accent}18`,color:accent}}>
+              ↻ {lang==="en"?"Retry":"Coba lagi"}
+            </button>
+          </div>
+        )}
+        {!loading&&!error&&filtered.length===0&&(
+          <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <span style={{fontSize:9,color:accentDim}}>{lang==="en"?"No articles":"Tidak ada artikel"}</span>
+          </div>
+        )}
+        {!loading&&!error&&filtered.length>0&&(
           <>
-            {/* Featured card (first item — big) */}
-            {filtered[0]&&(
-              <div onClick={()=>setSelected(filtered[0])}
-                style={{borderRadius:8,overflow:"hidden",cursor:"pointer",flexShrink:0,
-                  border:`1px solid ${accentDim}`,transition:"all 0.2s",
-                  background:filtered[0].imageGradient,position:"relative",height:90}}
-                onMouseEnter={e=>e.currentTarget.style.borderColor=accent}
-                onMouseLeave={e=>e.currentTarget.style.borderColor=accentDim}>
-                <div style={{position:"absolute",inset:0,
-                  background:"linear-gradient(to bottom,transparent 20%,rgba(0,0,0,0.75))"}}/>
-                <div style={{position:"absolute",top:8,left:10,fontSize:22}}>{filtered[0].emoji}</div>
-                <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"8px 10px"}}>
-                  <div style={{fontSize:7,color:accent,letterSpacing:0.5,marginBottom:3}}>
-                    ★ {lang==="en"?"TOP STORY":"BERITA UTAMA"} · {filtered[0].category}
-                  </div>
-                  <div style={{fontSize:10,color:"#fff",fontWeight:"bold",lineHeight:1.4,
-                    overflow:"hidden",display:"-webkit-box",
-                    WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
-                    {filtered[0].title}
-                  </div>
-                  <div style={{fontSize:7.5,color:"#ffffff88",marginTop:3}}>
-                    {filtered[0].source} · {filtered[0].time}
-                  </div>
+            {/* Featured */}
+            <div onClick={()=>setSelected(filtered[0])}
+              style={{borderRadius:8,overflow:"hidden",cursor:"pointer",flexShrink:0,
+                border:`1.5px solid ${accentDim}`,transition:"all 0.2s",
+                background:filtered[0].imageGradient,position:"relative",height:88}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=accent;e.currentTarget.style.transform="scale(1.01)"}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=accentDim;e.currentTarget.style.transform="scale(1)"}}>
+              {/* Real image overlay */}
+              {filtered[0].imageUrl&&(
+                <img src={filtered[0].imageUrl} alt="" style={{position:"absolute",inset:0,
+                  width:"100%",height:"100%",objectFit:"cover",opacity:0.55,
+                  borderRadius:7}} onError={e=>{(e.target as HTMLImageElement).style.display="none"}}/>
+              )}
+              <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom,transparent 20%,rgba(0,0,0,0.78))"}}/>
+              <div style={{position:"absolute",top:8,left:10,fontSize:22}}>{filtered[0].emoji}</div>
+              <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"8px 10px"}}>
+                <div style={{fontSize:7,color:accent,letterSpacing:0.5,marginBottom:3}}>
+                  ★ {lang==="en"?"TOP STORY":"BERITA UTAMA"} · {filtered[0].category} · {filtered[0].source}
                 </div>
+                <div style={{fontSize:10.5,color:"#fff",fontWeight:"bold",lineHeight:1.4,
+                  overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
+                  {filtered[0].title}
+                </div>
+                <div style={{fontSize:7,color:"rgba(255,255,255,0.65)",marginTop:3}}>{filtered[0].time}</div>
               </div>
-            )}
+            </div>
 
-            {/* Small cards grid (rest) */}
+            {/* Grid */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
               {filtered.slice(1).map(article=>(
                 <div key={article.id} onClick={()=>setSelected(article)}
                   style={{borderRadius:7,overflow:"hidden",cursor:"pointer",
                     border:`1px solid ${accentDim}`,transition:"all 0.2s",
-                    background:"rgba(255,255,255,0.02)",display:"flex",flexDirection:"column"}}
-                  onMouseEnter={e=>e.currentTarget.style.borderColor=accent}
-                  onMouseLeave={e=>e.currentTarget.style.borderColor=accentDim}>
-                  {/* Image area */}
-                  <div style={{height:44,background:article.imageGradient,
+                    background:T.bgCard,display:"flex",flexDirection:"column"}}
+                  onMouseEnter={e=>{e.currentTarget.style.borderColor=accent}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=accentDim}}>
+                  <div style={{height:42,background:article.imageGradient,
                     display:"flex",alignItems:"center",justifyContent:"center",
-                    fontSize:20,position:"relative",flexShrink:0}}>
-                    {article.emoji}
+                    fontSize:18,position:"relative",flexShrink:0,overflow:"hidden"}}>
+                    {article.imageUrl&&(
+                      <img src={article.imageUrl} alt="" style={{position:"absolute",inset:0,
+                        width:"100%",height:"100%",objectFit:"cover",opacity:0.6}}
+                        onError={e=>{(e.target as HTMLImageElement).style.display="none"}}/>
+                    )}
+                    <div style={{position:"relative",zIndex:1}}>{article.emoji}</div>
                     <div style={{position:"absolute",top:3,right:4,fontSize:6.5,
                       padding:"1px 5px",borderRadius:20,
                       background:`${accent}22`,color:accent,border:`1px solid ${accent}44`}}>
                       {article.category}
                     </div>
                   </div>
-                  {/* Text */}
                   <div style={{padding:"5px 6px",flex:1}}>
-                    <div style={{fontSize:8.5,color:"#d0e8f5",lineHeight:1.4,fontWeight:"bold",
-                      overflow:"hidden",display:"-webkit-box",
-                      WebkitLineClamp:2,WebkitBoxOrient:"vertical",marginBottom:3}}>
+                    <div style={{fontSize:8.5,color:T.textPrimary,lineHeight:1.4,fontWeight:"bold",
+                      overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",marginBottom:3}}>
                       {article.title}
                     </div>
-                    <div style={{fontSize:7,color:accentDim}}>
-                      {article.source} · {article.time}
-                    </div>
+                    <div style={{fontSize:7,color:accentDim}}>{article.source} · {article.time}</div>
                   </div>
                 </div>
               ))}
@@ -264,25 +823,6 @@ function HomePanelNews({accent,accentDim,accentFaint,lang}:{accent:string;accent
   )
 }
 
-interface HUDSimulatorProps {
-  settings: HUDSettings
-  t: Translation
-  activeFeature?: string
-  setActiveFeature?: (f: string) => void
-  voiceAction?: VoiceAction
-  onVoiceActionDone?: () => void
-}
-
-interface NearbyPlace {
-  name: string; dist: string; category: string; lat: number; lng: number
-}
-interface RealNotif {
-  id: string; type: string; icon: string; msg: string; time: string
-}
-interface DetectedObject {
-  label: string; score: number; bbox: [number, number, number, number]
-}
-
 function calcDist(la1: number, lo1: number, la2: number, lo2: number): string {
   const R = 6371000, dLa = ((la2-la1)*Math.PI)/180, dLo = ((lo2-lo1)*Math.PI)/180
   const a = Math.sin(dLa/2)**2 + Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dLo/2)**2
@@ -290,9 +830,9 @@ function calcDist(la1: number, lo1: number, la2: number, lo2: number): string {
   return m<1000?`${Math.round(m)}m`:`${(m/1000).toFixed(1)}km`
 }
 // ── Leaflet Map Component with real routing ──────────────────────────────────
-function LeafletMap({ lat, lng, destLat, destLng, accent, accentDim }: {
+function LeafletMap({ lat, lng, destLat, destLng, accent, accentDim, isLight }: {
   lat: number; lng: number; destLat?: number; destLng?: number
-  accent: string; accentDim: string
+  accent: string; accentDim: string; isLight?: boolean
 }) {
   const mapRef = useRef<HTMLDivElement>(null)
   const leafletRef = useRef<any>(null)
@@ -324,9 +864,10 @@ function LeafletMap({ lat, lng, destLat, destLng, accent, accentDim }: {
       const map = L.map(mapRef.current, { zoomControl: false, attributionControl: false })
       leafletRef.current = map
 
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-        maxZoom: 19
-      }).addTo(map)
+      L.tileLayer(isLight
+        ? "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+        : "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+      , { maxZoom: 19 }).addTo(map)
 
       // Custom marker icons
       const pulseIcon = L.divIcon({
@@ -893,9 +1434,10 @@ async function translateText(
   throw new Error("Semua API terjemahan gagal")
 }
 
-function TranslatePanel({accent,accentDim,accentFaint,targetLang}:{
-  accent:string; accentDim:string; accentFaint:string; targetLang:string
+function TranslatePanel({accent,accentDim,accentFaint,targetLang,theme}:{
+  accent:string; accentDim:string; accentFaint:string; targetLang:string; theme:any
 }) {
+  const T = theme
   const videoRef  = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream|null>(null)
@@ -1215,7 +1757,7 @@ Balas HANYA dalam format JSON ini (tanpa markdown, tanpa teks lain):
       {/* ── Video / Manual input ── */}
       {!showManual ? (
         <div style={{flex:1,position:"relative",borderRadius:6,overflow:"hidden",
-          border:`1px solid ${accentDim}`,background:"#000",minHeight:0}}>
+          border:`1px solid ${accentDim}`,background:theme.isLight?"#e0e8f0":"#000",minHeight:0}}>
           <video ref={videoRef} muted playsInline
             style={{width:"100%",height:"100%",objectFit:"cover",display:cameraOn?"block":"none"}}/>
           {!cameraOn && (
@@ -1250,7 +1792,7 @@ Balas HANYA dalam format JSON ini (tanpa markdown, tanpa teks lain):
           <textarea value={manualText} onChange={e=>setManualText(e.target.value)}
             placeholder={targetLang==="en"?"Type or paste text here...":"Ketik atau paste teks di sini..."}
             style={{flex:1,background:"rgba(0,0,0,0.5)",border:`1px solid ${accentDim}`,
-              borderRadius:6,color:"#cde",fontSize:11,padding:"8px 10px",
+              borderRadius:6,color:theme.textPrimary,fontSize:11,padding:"8px 10px",
               fontFamily:"monospace",resize:"none",outline:"none",lineHeight:1.6}}/>
           <div style={{fontSize:8,color:accentDim,textAlign:"right"}}>{manualText.length}/500</div>
         </div>
@@ -1346,7 +1888,8 @@ Balas HANYA dalam format JSON ini (tanpa markdown, tanpa teks lain):
 }
 
 // ── AI PANEL ──────────────────────────────────────────────────────────────────
-function AIPanel({accent,accentDim,accentFaint,lang}:{accent:string;accentDim:string;accentFaint:string;lang:string}) {
+function AIPanel({accent,accentDim,accentFaint,lang,theme}:{accent:string;accentDim:string;accentFaint:string;lang:string;theme:any}) {
+  const T = theme
   const videoRef   = useRef<HTMLVideoElement>(null)
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const [cameraOn,  setCameraOn]  = useState(false)
@@ -1430,7 +1973,7 @@ Maksimal 3 kalimat kecuali penjelasan detail diminta.`
         {/* Viewfinder */}
         <div style={{flex:1,position:"relative",borderRadius:8,overflow:"hidden",
           border:`1.5px solid ${status==="analyzing"?accent:status==="error"?"#f55":accentDim}`,
-          background:"#000",minHeight:0,transition:"border-color 0.3s"}}>
+          background:theme.isLight?"#e0e8f0":"#000",minHeight:0,transition:"border-color 0.3s"}}>
           <video ref={videoRef} style={{width:"100%",height:"100%",objectFit:"cover",
             display:cameraOn?"block":"none"}} muted playsInline/>
           <canvas ref={canvasRef} style={{display:"none"}}/>
@@ -1439,7 +1982,7 @@ Maksimal 3 kalimat kecuali penjelasan detail diminta.`
           {!cameraOn&&(
             <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",
               alignItems:"center",justifyContent:"center",gap:10,
-              background:"linear-gradient(180deg,#040d1a,#081828)"}}>
+              background:theme.isLight?"linear-gradient(180deg,#e8eff6,#d8e8f2)":"linear-gradient(180deg,#040d1a,#081828)"}}>
               <div style={{width:44,height:44,borderRadius:"50%",
                 border:`1.5px solid ${accentDim}`,display:"flex",alignItems:"center",
                 justifyContent:"center",fontSize:20,color:accentDim,
@@ -1612,7 +2155,7 @@ Maksimal 3 kalimat kecuali penjelasan detail diminta.`
                 background:`${accent}20`,border:`1px solid ${accentDim}`,
                 display:"flex",alignItems:"center",justifyContent:"center",fontSize:7}}>⬡</div>
               <div style={{padding:"7px 10px",borderRadius:"11px 11px 11px 2px",
-                background:"rgba(255,255,255,0.04)",border:`1px solid ${accent}18`}}>
+                background:theme.bgInset,border:`1px solid ${accent}18`}}>
                 <div style={{display:"flex",gap:3,alignItems:"center"}}>
                   {[0,1,2].map(j=>(
                     <div key={j} style={{width:4,height:4,borderRadius:"50%",
@@ -1637,8 +2180,8 @@ Maksimal 3 kalimat kecuali penjelasan detail diminta.`
                 onKeyDown={e=>e.key==="Enter"&&!analyzing&&analyze()}
                 placeholder={lang==="en"?"Ask about what you see...":"Tanya tentang yang terlihat..."}
                 style={{flex:1,padding:"5px 8px",borderRadius:6,fontSize:9,
-                  background:"rgba(255,255,255,0.04)",
-                  border:`1px solid ${accentDim}`,color:"#cde",
+                  background:theme.bgInset,
+                  border:`1px solid ${accentDim}`,color:theme.textPrimary,
                   outline:"none",fontFamily:"monospace"}}/>
               <button onClick={()=>analyze()} disabled={analyzing}
                 style={{padding:"5px 10px",borderRadius:6,cursor:analyzing?"not-allowed":"pointer",
@@ -1658,7 +2201,7 @@ Maksimal 3 kalimat kecuali penjelasan detail diminta.`
 // ── DETECT PANEL — AI Vision ────────────────────────────────────────────
 interface DetectedObject { label: string; score: number; bbox: [number,number,number,number] }
 
-function DetectPanel({accent,accentDim,accentFaint,lang}:{accent:string;accentDim:string;accentFaint:string;lang:string}) {
+function DetectPanel({accent,accentDim,accentFaint,lang,theme}:{accent:string;accentDim:string;accentFaint:string;lang:string;theme?:any}) {
   const videoRef   = useRef<HTMLVideoElement>(null)
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
@@ -1866,7 +2409,7 @@ Aturan:
   return (
     <div style={{display:"flex",gap:10,height:"100%"}}>
       {/* ── Video + overlay ── */}
-      <div style={{flex:1.4,position:"relative",border:`1px solid ${accentDim}`,borderRadius:6,overflow:"hidden",background:"#000"}}>
+      <div style={{flex:1.4,position:"relative",border:`1px solid ${accentDim}`,borderRadius:6,overflow:"hidden",background:theme.isLight?"#e0e8f0":"#000"}}>
         <video ref={videoRef} muted playsInline
           style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",display:cameraOn?"block":"none"}}/>
         <canvas ref={canvasRef} style={{display:"none"}}/>
@@ -2005,281 +2548,438 @@ Aturan:
   )
 }
 // ── MAIN ──────────────────────────────────────────────────────────────────────
+// ── MAIN HUD SIMULATOR ────────────────────────────────────────────────────────
+// ── MAIN HUD SIMULATOR ────────────────────────────────────────────────────────
+
+interface HUDSimulatorProps {
+  settings?: HUDSettings
+  t: Translation
+  activeFeature?: string
+  setActiveFeature?: (f: string) => void
+  voiceAction?: VoiceAction | null
+  onVoiceActionDone?: () => void
+}
+
 export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, setActiveFeature: setActiveFeatureProp, voiceAction, onVoiceActionDone }: HUDSimulatorProps) {
   const [time, setTime] = useState(new Date())
   const [scanLine, setScanLine] = useState(0)
   const [internalFeature, setInternalFeature] = useState("home")
+  const [incomingCall, setIncomingCall] = useState<IncomingCall|null>(null)
+  const [pendingSearch, setPendingSearch] = useState<string|null>(null)
 
-  // Gunakan controlled (dari voice) atau internal state
   const activeFeature = activeFeatureProp ?? internalFeature
-  const setActiveFeature = (f: string) => {
-    setInternalFeature(f)
-    setActiveFeatureProp?.(f)
-  }
+  const setActiveFeature = (f:string) => { setInternalFeature(f); setActiveFeatureProp?.(f) }
 
-  // Kalau active tab di-disable lewat settings, fallback ke home
-  useEffect(()=>{
-    const match = allTabs.find(t=>t.id===activeFeature)
-    if (match?.settingKey && (settings as any)?.[match.settingKey] === false) {
-      setActiveFeature("home")
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[settings])
-
-  const {coords,address,accuracy,error:gpsError,loading:gpsLoading,nearby,loadingNearby,destination,setDestination,searchQuery,setSearchQuery,searchNearbyByQuery,activeSearchRef} = useGPS()
+  const {coords,address,accuracy,error:gpsError,nearby,loadingNearby,destination,setDestination,searchQuery,setSearchQuery,searchNearbyByQuery} = useGPS()
   const notifs  = useRealNotifs(coords)
   const battery = useBattery()
 
-  // Pending search query dari voice — menunggu coords tersedia
-  const [pendingSearch, setPendingSearch] = useState<string|null>(null)
+  // ── Cyberpunk Design Tokens ───────────────────────────────────────────────
+  const isLight    = settings?.lightMode ?? false
+  const userAccent = settings?.accentColor
 
-  // Eksekusi voiceAction saat berubah
-  useEffect(() => {
-    if (!voiceAction || voiceAction.type === "none") return
-    if (voiceAction.type === "navigate") {
-      setActiveFeature(voiceAction.feature)
-    } else if (voiceAction.type === "search_nearby") {
-      const query = (voiceAction as any).query ?? ""
-      setActiveFeature("nav")
-      if (coords) {
-        searchNearbyByQuery(query, coords.lat, coords.lng)
-      } else {
-        setPendingSearch(query)
-      }
-    } else if (voiceAction.type === "toggle_hide_ui") {
-      // handled di parent
-    }
-    onVoiceActionDone?.()
-  }, [voiceAction])
+  const darkTk = {
+    bg:          "linear-gradient(135deg,#04080f 0%,#0a1628 50%,#060c18 100%)",
+    bgSolid:     "#04080f",
+    bgCard:      "rgba(0,255,200,0.03)",
+    bgCardHov:   "rgba(0,255,200,0.06)",
+    bgInset:     "rgba(0,255,200,0.05)",
+    border:      `${userAccent??"#00ffcc"}33`,
+    borderBright:`${userAccent??"#00ffcc"}88`,
+    text:        "#d0f0e8",
+    textSub:     "#7aabb0",
+    textMuted:   "#3a6870",
+    textFaint:   "#1a3840",
+    accent:      userAccent ?? "#00ffcc",
+    accentDim:   userAccent ? `${userAccent}88` : "#00ffcc88",
+    accentFaint: userAccent ? `${userAccent}12` : "#00ffcc12",
+    accentGlow:  userAccent ? `${userAccent}40` : "#00ffcc40",
+    scanColor:   "rgba(0,255,200,0.025)",
+    green:  "#00ff88", greenS: "rgba(0,255,136,0.15)",
+    red:    "#ff4466", redS:   "rgba(255,68,102,0.15)",
+    amber:  "#ffcc00", amberS: "rgba(255,204,0,0.15)",
+    blue:   "#00aaff", blueS:  "rgba(0,170,255,0.15)",
+  }
+  const lightTk = {
+    bg:          "linear-gradient(135deg,#f0f4f8 0%,#e8eef5 50%,#f2f6fa 100%)",
+    bgSolid:     "#f0f4f8",
+    bgCard:      "rgba(255,255,255,0.85)",
+    bgCardHov:   "rgba(255,255,255,0.95)",
+    bgInset:     "rgba(0,100,180,0.05)",
+    border:      `${userAccent??"#0066cc"}44`,
+    borderBright:`${userAccent??"#0066cc"}99`,
+    text:        "#0a2030",
+    textSub:     "#2a5070",
+    textMuted:   "#5a8090",
+    textFaint:   "#a0c0d0",
+    accent:      userAccent ?? "#0066cc",
+    accentDim:   userAccent ? `${userAccent}88` : "#0066cc88",
+    accentFaint: userAccent ? `${userAccent}12` : "#0066cc12",
+    accentGlow:  userAccent ? `${userAccent}30` : "#0066cc30",
+    scanColor:   "rgba(0,100,200,0.03)",
+    green:  "#00aa55", greenS: "rgba(0,170,85,0.12)",
+    red:    "#cc2233", redS:   "rgba(204,34,51,0.12)",
+    amber:  "#cc8800", amberS: "rgba(204,136,0,0.12)",
+    blue:   "#0055cc", blueS:  "rgba(0,85,204,0.12)",
+  }
+  const tk = isLight ? lightTk : darkTk
+  const accent      = tk.accent
+  const accentDim   = tk.accentDim
+  const accentFaint = tk.accentFaint
 
-  // Proses pending search saat coords baru tersedia
-  useEffect(() => {
-    if (pendingSearch && coords) {
-      searchNearbyByQuery(pendingSearch, coords.lat, coords.lng)
-      setPendingSearch(null)
-    }
-  }, [coords, pendingSearch])
+  // Legacy theme for sub-panels
+  const theme = {
+    isLight, accent, accentDim, accentFaint,
+    bgMain:      tk.bgSolid,
+    bgPanel:     "transparent",
+    bgCard:      tk.bgCard,
+    bgCardAlt:   tk.bgInset,
+    bgInset:     tk.bgInset,
+    textPrimary:   tk.text,
+    textSecondary: tk.textSub,
+    textMuted:     tk.textMuted,
+    textFaint:     tk.textFaint,
+    border:        tk.border,
+    borderFaint:   tk.border,
+    topbarBg:    isLight ? "rgba(230,240,250,0.95)" : "rgba(0,0,0,0.0)",
+    tabBarBg:    isLight ? "rgba(225,238,252,0.98)" : "rgba(0,0,0,0.0)",
+  }
 
-  const accent      = settings?.accentColor ?? "#00ffff"
-  const accentDim   = `${accent}55`
-  const accentFaint = `${accent}15`
-  const hidden      = settings?.hideUI ?? false
-  const lang        = settings?.language ?? "id"
+  const hidden = settings?.hideUI ?? false
+  const lang   = settings?.language ?? "id"
+
+  const allTabs = [
+    {id:"home",      label:lang==="en"?"Home":"Beranda",  icon:"⌂",  settingKey:null as null|string},
+    {id:"nav",       label:lang==="en"?"Maps":"Peta",     icon:"◈",  settingKey:"navigation"},
+    {id:"notify",    label:"Notif",                        icon:"◉",  settingKey:"notifications"},
+    {id:"apps",      label:"Apps",                         icon:"⊞",  settingKey:null},
+    {id:"translate", label:lang==="en"?"Lens":"Terjemah", icon:"◆",  settingKey:"translation"},
+    {id:"ai",        label:"Vision",                       icon:"⬡",  settingKey:null},
+    {id:"health",    label:lang==="en"?"Health":"Sehat",  icon:"♥",  settingKey:"healthMonitor"},
+    {id:"detect",    label:"Scan",                         icon:"⬢",  settingKey:"objectDetect"},
+    {id:"voice",     label:"AI",                           icon:"◍",  settingKey:"voiceControl"},
+  ]
+  const tabs = allTabs.filter(tab => tab.settingKey===null || (settings as any)?.[tab.settingKey]!==false)
+
+  useEffect(()=>{
+    const match = allTabs.find(tt=>tt.id===activeFeature)
+    if(match?.settingKey && (settings as any)?.[match.settingKey]===false) setActiveFeature("home")
+  },[settings])
 
   useEffect(()=>{ const i=setInterval(()=>setTime(new Date()),1000); return()=>clearInterval(i) },[])
+  useEffect(()=>{ const i=setInterval(()=>setScanLine(p=>(p+1)%100),28); return()=>clearInterval(i) },[])
 
-  // Inject global CSS keyframes
   useEffect(()=>{
-    const id = "v-optics-keyframes"
-    if (document.getElementById(id)) return
-    const s = document.createElement("style"); s.id = id
-    s.textContent = `
-      @keyframes bounce { 0%,80%,100%{transform:translateY(0);opacity:0.6} 40%{transform:translateY(-5px);opacity:1} }
-      @keyframes ripple { 0%{transform:scale(1);opacity:0.6} 100%{transform:scale(1.8);opacity:0} }
-      @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
-      @keyframes blink  { 0%,100%{opacity:1} 50%{opacity:0} }
-      @keyframes orbPulse { 0%,100%{opacity:0.4;transform:scale(1)} 50%{opacity:0.9;transform:scale(1.08)} }
-      @keyframes spin   { to{transform:rotate(360deg)} }
-      @keyframes pulse  { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    const id="voptics-cp-kf"; if(document.getElementById(id)) return
+    const s=document.createElement("style"); s.id=id
+    s.textContent=`
+      @keyframes spin{to{transform:rotate(360deg)}}
+      @keyframes fadeIn{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+      @keyframes bounce{0%,80%,100%{transform:translateY(0);opacity:.6}40%{transform:translateY(-4px);opacity:1}}
+      @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+      @keyframes cpBlink{0%,100%{opacity:1}49%{opacity:1}50%{opacity:0}99%{opacity:0}}
+      @keyframes cpGlow{0%,100%{text-shadow:0 0 6px currentColor}50%{text-shadow:0 0 14px currentColor,0 0 28px currentColor}}
     `
     document.head.appendChild(s)
   },[])
-  useEffect(()=>{ const i=setInterval(()=>setScanLine(p=>(p+1)%100),28); return()=>clearInterval(i) },[])
+
+  useEffect(()=>{
+    if(!voiceAction||voiceAction.type==="none") return
+    if(voiceAction.type==="navigate") setActiveFeature((voiceAction as any).feature)
+    else if(voiceAction.type==="search_nearby"){
+      const q=(voiceAction as any).query??""
+      setActiveFeature("nav")
+      if(coords) searchNearbyByQuery(q,coords.lat,coords.lng)
+      else setPendingSearch(q)
+    }
+    onVoiceActionDone?.()
+  },[voiceAction])
+
+  useEffect(()=>{
+    if(pendingSearch&&coords){searchNearbyByQuery(pendingSearch,coords.lat,coords.lng);setPendingSearch(null)}
+  },[coords,pendingSearch])
 
   const fmt=(n:number)=>String(n).padStart(2,"0")
   const timeStr=`${fmt(time.getHours())}:${fmt(time.getMinutes())}:${fmt(time.getSeconds())}`
-
-  const allTabs=[
-    {id:"home",  label:"Beranda",          icon:"⌂",  settingKey:null as null|string},
-    {id:"nav",   label:t.tabNav,           icon:"◈",  settingKey:"navigation"},
-    {id:"notify",label:t.tabNotif,         icon:"◉",  settingKey:"notifications"},
-    {id:"translate",label:t.tabTranslate,  icon:"◆",  settingKey:"translation"},
-    {id:"ai",    label:t.tabAI,            icon:"⬡",  settingKey:null},
-    {id:"health",label:t.tabHealth,        icon:"♥",  settingKey:"healthMonitor"},
-    {id:"detect",label:t.tabDetect,        icon:"⬢",  settingKey:"objectDetect"},
-    {id:"voice", label:"Chat AI",          icon:"◍",  settingKey:"voiceControl"},
-  ]
-  const tabs = allTabs.filter(tab =>
-    tab.settingKey === null || (settings as any)?.[tab.settingKey] !== false
-  )
+  const brightness = settings?.nightMode ? Math.min(settings?.brightness??80,55) : settings?.brightness ?? 80
 
   return (
-    <div className="relative w-full max-w-205 overflow-hidden font-mono"
-      style={{aspectRatio:"16/9",background:"linear-gradient(135deg,#04080f 0%,#0a1628 50%,#060c18 100%)",borderRadius:16,border:`1px solid ${accentDim}`,boxShadow:`0 0 60px ${accentFaint},inset 0 0 80px rgba(0,0,0,0.13)`,filter:`brightness(${settings?.nightMode ? Math.min(settings?.brightness??80, 55) : settings?.brightness??80}%) ${settings?.nightMode ? "sepia(0.15)" : ""}`}}>
-      <div className="absolute inset-0 pointer-events-none z-10" style={{background:`linear-gradient(transparent ${scanLine-1}%,rgba(0,255,255,0.025) ${scanLine}%,transparent ${scanLine+1}%)`}}/>
-      <div className="absolute inset-0 pointer-events-none z-10" style={{background:"radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,0.75) 100%)"}}/>
-      <div className="absolute inset-0 pointer-events-none" style={{opacity:0.035,backgroundImage:`linear-gradient(${accent} 1px,transparent 1px),linear-gradient(90deg,${accent} 1px,transparent 1px)`,backgroundSize:"40px 40px"}}/>
+    <div className="relative w-full max-w-205 overflow-hidden select-none"
+      style={{
+        aspectRatio:"16/9",
+        background:tk.bg,
+        borderRadius:8,
+        border:`1px solid ${tk.border}`,
+        boxShadow: isLight
+          ? `0 0 40px ${accent}22, inset 0 0 60px rgba(0,100,180,0.03)`
+          : `0 0 60px ${accent}18, inset 0 0 120px rgba(0,20,40,0.8)`,
+        filter:`brightness(${brightness}%)`,
+        fontFamily:"'Courier New','Fira Code',monospace",
+      }}>
 
+      {/* Scan line effect */}
+      {!isLight&&(
+        <div style={{position:"absolute",left:0,right:0,zIndex:1,pointerEvents:"none",
+          top:`${scanLine}%`,height:"2px",
+          background:`linear-gradient(to bottom,transparent,${tk.scanColor},transparent)`,
+          transition:"top 0.028s linear"}}/>
+      )}
+
+      {/* Corner brackets — cyberpunk frame */}
+      {[["0","0","top","left"],["0","0","top","right"],["0","0","bottom","left"],["0","0","bottom","right"]].map(([t2,l2,vPos,hPos],i)=>(
+        <div key={i} style={{position:"absolute",zIndex:5,pointerEvents:"none",
+          [vPos]:4,[hPos]:4,width:12,height:12,
+          borderTop:vPos==="top"?`1.5px solid ${accent}`:"none",
+          borderBottom:vPos==="bottom"?`1.5px solid ${accent}`:"none",
+          borderLeft:hPos==="left"?`1.5px solid ${accent}`:"none",
+          borderRight:hPos==="right"?`1.5px solid ${accent}`:"none",
+          opacity:0.6}}/>
+      ))}
+
+      {/* ── Top Bar ── */}
       {!hidden&&(
-        <div className="absolute top-0 left-0 right-0 flex justify-between items-center z-5"
-          style={{padding:"7px 14px",borderBottom:`1px solid ${accentDim}`,background:"rgba(4,8,15,0.5)"}}>
-          <div className="text-[9px] tracking-[3px]" style={{color:accent}}>V-OPTICS HUD v2.0</div>
-          <div className="text-xs font-bold tracking-[4px]" style={{color:accent,textShadow:`0 0 8px ${accent}`}}>{timeStr}</div>
-          <div className="flex gap-2.5 items-center">
-            <span className="text-[9px]" style={{color:"#0f8"}}>{t.active}</span>
-            <span className="text-[9px]" style={{
-              color: battery.level === null ? "#888"
-                   : battery.charging ? "#0f8"
-                   : battery.level <= 15 ? "#f44"
-                   : battery.level <= 30 ? "#f80"
-                   : "#ff0"
-            }}>
-              {battery.charging ? "⚡" : battery.level !== null && battery.level <= 20 ? "🪫" : "🔋"}
-              {battery.level !== null ? ` ${battery.level}%` : " --"}
-            </span>
-            <span className="text-[9px]" style={{color:gpsError?"#f44":coords?"#0f8":"#ff0"}}>{gpsError?"⚠ GPS":coords?"● GPS":"○ GPS"}</span>
-            {notifs.length>0&&<span className="text-[9px]" style={{color:accent,animation:"pulse 2s infinite"}}>◉ {notifs.length}</span>}
+        <div style={{
+          position:"absolute",top:0,left:0,right:0,zIndex:20,
+          display:"flex",alignItems:"center",justifyContent:"space-between",
+          padding:"0 14px",height:36,
+          background: isLight
+            ? "rgba(232,242,252,0.96)"
+            : "rgba(0,8,20,0.85)",
+          borderBottom:`1px solid ${tk.border}`,
+        }}>
+          {/* Logo */}
+          <div style={{display:"flex",alignItems:"center",gap:7}}>
+            <div style={{width:18,height:18,border:`1.5px solid ${accent}`,
+              borderRadius:3,display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:8,fontWeight:"bold",color:accent,letterSpacing:-0.5,
+              boxShadow:`0 0 8px ${accent}66`,animation:"cpGlow 3s ease infinite"}}>V</div>
+            <span style={{fontSize:10,fontWeight:"bold",color:accent,letterSpacing:3,
+              textShadow:`0 0 10px ${accent}88`}}>V-OPTICS</span>
+            <span style={{fontSize:7,color:tk.textMuted,letterSpacing:1,
+              border:`1px solid ${tk.border}`,padding:"1px 5px",borderRadius:2}}>HUD</span>
+          </div>
+
+          {/* Clock */}
+          <div style={{position:"absolute",left:"50%",transform:"translateX(-50%)",
+            fontSize:13,fontWeight:"bold",color:accent,letterSpacing:4,
+            textShadow:`0 0 12px ${accent}88`,fontVariantNumeric:"tabular-nums"}}>
+            {timeStr}
+            <span style={{fontSize:8,animation:"cpBlink 1s step-end infinite",marginLeft:2}}>_</span>
+          </div>
+
+          {/* Status */}
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{display:"flex",alignItems:"center",gap:4,
+              border:`1px solid ${coords?tk.green:gpsError?tk.red:tk.amber}44`,
+              padding:"2px 7px",borderRadius:2,
+              background:coords?tk.greenS:gpsError?tk.redS:tk.amberS}}>
+              <div style={{width:4,height:4,borderRadius:"50%",
+                background:coords?tk.green:gpsError?tk.red:tk.amber,
+                animation:!coords&&!gpsError?"pulse 2s infinite":undefined}}/>
+              <span style={{fontSize:7,color:coords?tk.green:gpsError?tk.red:tk.amber,letterSpacing:1}}>GPS</span>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:4,
+              border:`1px solid ${tk.border}`,padding:"2px 7px",borderRadius:2,
+              background:battery.charging?tk.greenS:battery.level!==null&&battery.level<=15?tk.redS:"transparent"}}>
+              <span style={{fontSize:9,color:battery.charging?tk.green:battery.level!==null&&battery.level<=15?tk.red:tk.textSub}}>
+                {battery.charging?"⚡":"⬡"}
+              </span>
+              <span style={{fontSize:7.5,color:tk.textSub,fontVariantNumeric:"tabular-nums",letterSpacing:0.5}}>
+                {battery.level!==null?`${battery.level}%`:"--"}
+              </span>
+            </div>
+            {notifs.length>0&&(
+              <div style={{minWidth:17,height:17,borderRadius:2,padding:"0 4px",
+                background:`${accent}22`,border:`1px solid ${accent}`,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:8,fontWeight:"bold",color:accent,
+                boxShadow:`0 0 8px ${accent}55`}}>
+                {notifs.length}
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {!hidden&&(
-        <div className="absolute bottom-0 left-0 right-0 flex z-5" style={{borderTop:`1px solid ${accentDim}`}}>
-          {tabs.map(tab=>(
-            <button key={tab.id} onClick={()=>setActiveFeature(tab.id)}
-              className="flex-1 font-mono text-[8px] tracking-[0.5px] cursor-pointer transition-all duration-200"
-              style={{
-                padding:"6px 2px",border:"none",
-                borderRight:`1px solid ${accentDim}`,
-                background:activeFeature===tab.id?`${accent}1a`:"transparent",
-                color:activeFeature===tab.id?accent:`${accent}55`,
-                textShadow:activeFeature===tab.id?`0 0 6px ${accent}`:"none",
-                transition:"all 0.2s",
-              }}>
-              <div style={{fontSize:11}}>{tab.icon}</div>
-              <div style={{fontSize:7,marginTop:1,letterSpacing:0.3}}>{tab.label}</div>
-            </button>
-          ))}
-        </div>
-      )}
+      {/* ── Content ── */}
+      <div style={{position:"absolute",top:hidden?0:36,bottom:hidden?0:38,
+        left:0,right:0,overflow:"hidden",zIndex:10}}>
+        <div style={{height:"100%",overflowY:"auto",padding:"10px 12px",scrollbarWidth:"thin",
+          scrollbarColor:`${accentDim} transparent`}}>
 
-      {hidden&&<div className="absolute top-2 right-2 z-20 text-[8px] tracking-widest" style={{color:accentDim}}>CLEAN MODE</div>}
+          {activeFeature==="home"&&<HomePanelNews accent={accent} accentDim={accentDim} accentFaint={accentFaint} lang={lang} theme={theme}/>}
+          {activeFeature==="voice"&&<VoicePanel t={t} accent={accent} theme={theme} onAction={(action:any)=>{
+            if(action.type==="navigate") setActiveFeature(action.feature)
+            else if(action.type==="search_nearby"){setActiveFeature("nav");if(coords)searchNearbyByQuery(action.query??"",coords.lat,coords.lng)}
+          }}/>}
+          {activeFeature==="apps"&&<AppsPanel accent={accent} accentDim={accentDim} accentFaint={accentFaint} lang={lang} theme={theme} onIncomingCall={setIncomingCall}/>}
+          {activeFeature==="translate"&&<TranslatePanel accent={accent} accentDim={accentDim} accentFaint={accentFaint} targetLang={lang} theme={theme}/>}
+          {activeFeature==="ai"&&<AIPanel accent={accent} accentDim={accentDim} accentFaint={accentFaint} lang={lang} theme={theme}/>}
+          {activeFeature==="health"&&<HealthPanel t={t}/>}
+          {activeFeature==="detect"&&<DetectPanel accent={accent} accentDim={accentDim} accentFaint={accentFaint} lang={lang} theme={theme}/>}
 
-      <div className="absolute z-3 overflow-hidden" style={{top:hidden?0:38,bottom:hidden?0:44,left:0,right:0,padding:"12px 14px"}}>
-
-        {activeFeature==="nav"&&(
-          <div className="flex gap-3.5 h-full items-center">
-            {/* ── Peta — routing ke destination kalau ada ── */}
-            <div className="flex-1 h-full max-h-50 relative overflow-hidden rounded-md" style={{border:`1px solid ${destination?accent:accentDim}`,background:"#040d1a",transition:"border-color 0.3s"}}>
-              {coords
-                ? (<LeafletMap
-                    lat={coords.lat} lng={coords.lng}
-                    destLat={destination?.lat} destLng={destination?.lng}
-                    accent={accent} accentDim={accentDim}/>)
-                : (<div className="w-full h-full flex flex-col items-center justify-center gap-2">
-                    <div style={{color:gpsError?"#f44":"#ff0",fontSize:9,letterSpacing:1,textAlign:"center",padding:"0 8px"}}>
-                      {gpsError?`⚠ ${gpsError}`:lang==="en"?"○ Getting GPS...":"○ Mendapatkan GPS..."}
+          {/* ── Nav Panel ── */}
+          {activeFeature==="nav"&&(
+            <div style={{display:"flex",flexDirection:"column",height:"100%",gap:8}}>
+              <div style={{display:"flex",gap:6,flexShrink:0}}>
+                <div style={{flex:1,position:"relative"}}>
+                  <input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)}
+                    onKeyDown={e=>e.key==="Enter"&&coords&&searchNearbyByQuery(searchQuery,coords.lat,coords.lng)}
+                    placeholder={lang==="en"?"Search places...":"Cari tempat..."}
+                    style={{width:"100%",padding:"6px 10px 6px 28px",borderRadius:4,fontSize:9.5,
+                      background:tk.bgCard,border:`1px solid ${tk.border}`,color:tk.text,
+                      outline:"none",fontFamily:"monospace",boxSizing:"border-box" as any}}/>
+                  <span style={{position:"absolute",left:8,top:"50%",transform:"translateY(-50%)",
+                    fontSize:11,color:tk.textMuted,pointerEvents:"none"}}>⌕</span>
+                </div>
+                <button onClick={()=>coords&&searchNearbyByQuery(searchQuery,coords.lat,coords.lng)}
+                  style={{padding:"6px 12px",borderRadius:4,cursor:"pointer",border:`1px solid ${accent}`,
+                    background:`${accent}18`,color:accent,fontSize:9,fontFamily:"monospace",letterSpacing:1}}>
+                  ▶ {lang==="en"?"GO":"CARI"}
+                </button>
+              </div>
+              <div style={{flex:"0 0 42%",borderRadius:4,overflow:"hidden",
+                border:`1px solid ${tk.border}`}}>
+                {coords
+                  ? <LeafletMap lat={coords.lat} lng={coords.lng}
+                      destLat={destination?.lat} destLng={destination?.lng}
+                      accent={accent} accentDim={accentDim} isLight={isLight}/>
+                  : <div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",
+                      flexDirection:"column",gap:6,background:tk.bgCard}}>
+                      {gpsError
+                        ? <><span style={{fontSize:16}}>⚠️</span><span style={{fontSize:8,color:tk.red}}>{gpsError}</span></>
+                        : <><div style={{width:16,height:16,border:`2px solid ${accent}`,borderTopColor:"transparent",
+                            borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+                          <span style={{fontSize:8,color:accentDim,letterSpacing:2}}>{lang==="en"?"LOCATING":"MENCARI LOKASI"}</span></>
+                      }
                     </div>
-                    {!gpsError&&<div style={{width:16,height:16,border:`2px solid ${accent}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 1s linear infinite"}}/>}
-                  </div>)
-              }
-              {/* Badge destination aktif */}
-              {destination&&(
-                <div style={{position:"absolute",bottom:6,left:6,right:6,padding:"4px 8px",
-                  background:"rgba(0,0,0,0.75)",border:`1px solid ${accent}`,borderRadius:4,
-                  display:"flex",alignItems:"center",gap:6}}>
-                  <span style={{fontSize:10}}>{catIcon(destination.category)}</span>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:9,color:accent,fontWeight:"bold",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{destination.name}</div>
-                    <div style={{fontSize:7,color:"#ff0"}}>▶ {destination.dist}</div>
-                  </div>
-                  <button onClick={()=>{ setDestination(null); activeSearchRef.current = false; setSearchQuery("") }}
-                    style={{fontSize:8,color:"#f66",background:"none",border:"none",cursor:"pointer",padding:"0 2px"}}>✕</button>
-                </div>
-              )}
-            </div>
-
-            {/* ── Panel kanan ── */}
-            <div className="flex-[1.3] flex flex-col gap-0 overflow-y-auto h-full">
-              <div className="flex items-center gap-2 py-1.5" style={{borderBottom:`1px solid ${accentDim}`}}>
-                <div style={{width:7,height:7,borderRadius:"50%",flexShrink:0,background:coords?accent:"#ff0",boxShadow:`0 0 6px ${coords?accent:"#ff0"}`,animation:gpsLoading?"pulse 1s infinite":"none"}}/>
-                <span className="flex-1 text-[10px]" style={{color:accent}}>
-                  {gpsLoading?(lang==="en"?"Locating...":"Mencari..."):gpsError?gpsError:(lang==="en"?"You are here":"Kamu di sini")}
-                </span>
+                }
               </div>
-
-              {coords&&!gpsError&&(
-                <div className="py-1.5" style={{borderBottom:`1px solid ${accentDim}`}}>
-                  <div style={{fontSize:9,color:accentDim,letterSpacing:1,marginBottom:2}}>{lang==="en"?"LOCATION":"LOKASI"}</div>
-                  <div style={{fontSize:10,color:"#cde",lineHeight:1.4}}>{address}</div>
-                  <div style={{fontSize:8,color:`${accent}66`,marginTop:2,fontFamily:"monospace"}}>
-                    {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
-                    {accuracy&&<span style={{color:"#ff0",marginLeft:4}}>±{accuracy}m</span>}
-                  </div>
-                </div>
-              )}
-
-              {/* Label search query kalau dari voice */}
-              {searchQuery&&(
-                <div style={{padding:"3px 6px",fontSize:8,color:accent,letterSpacing:1,
-                  background:`${accent}10`,borderBottom:`1px solid ${accentDim}`}}>
-                  🔍 {searchQuery}
-                  <span onClick={()=>{ setDestination(null); activeSearchRef.current = false; setSearchQuery("") }} style={{float:"right",cursor:"pointer",color:"#f66"}}>✕</span>
-                </div>
-              )}
-
-              {coords&&(
-                <div style={{flex:1}}>
-                  <div style={{fontSize:9,color:accentDim,letterSpacing:1,padding:"4px 0"}}>
-                    {loadingNearby?(lang==="en"?"↻ SEARCHING...":"↻ MENCARI..."):(lang==="en"?"NEARBY":"TERDEKAT")}
-                  </div>
-                  {loadingNearby&&<div style={{width:10,height:10,border:`1.5px solid ${accent}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>}
-                  {!loadingNearby&&nearby.map((p,i)=>{
-                    const isActive = destination?.name===p.name && destination?.lat===p.lat
-                    return (
-                      <div key={i} onClick={()=>{ if(isActive){ setDestination(null); activeSearchRef.current=false; setSearchQuery("") } else { setDestination(p) } }}
-                        className="flex items-center gap-2 py-1.5"
-                        style={{borderBottom:`1px solid ${isActive?accent+"44":accent+"11"}`,
-                          cursor:"pointer",
-                          background:isActive?`${accent}12`:"transparent",
-                          borderRadius:isActive?4:0,padding:isActive?"4px 6px":"6px 0",
-                          animation:"fadeIn 0.3s ease",animationDelay:`${i*0.08}s`,animationFillMode:"both"}}>
-                        <span style={{fontSize:10,flexShrink:0}}>{catIcon(p.category)}</span>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:10,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
-                            color:isActive?accent:i===0?"#cde":"#89a",
-                            fontWeight:isActive?"bold":"normal"}}>
-                            {p.name}
-                          </div>
-                          <div style={{fontSize:8,color:`${accent}55`}}>{p.category}</div>
-                        </div>
-                        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:1}}>
-                          <span style={{fontSize:9,flexShrink:0,fontFamily:"monospace",color:isActive?"#0f8":i===0?"#ff0":"#ff08"}}>{p.dist}</span>
-                          {isActive&&<span style={{fontSize:7,color:"#0f8",letterSpacing:0.5}}>▶ AKTIF</span>}
-                        </div>
+              <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:4,minHeight:0}}>
+                {loadingNearby&&<div style={{padding:10,display:"flex",alignItems:"center",gap:8,justifyContent:"center"}}>
+                  <div style={{width:12,height:12,border:`1.5px solid ${accent}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+                  <span style={{fontSize:8,color:accentDim,letterSpacing:1}}>{lang==="en"?"SCANNING...":"MEMINDAI..."}</span>
+                </div>}
+                {nearby.map((p,i)=>(
+                  <div key={i} onClick={()=>setDestination(p)}
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:4,
+                      cursor:"pointer",transition:"all 0.15s",animation:`fadeIn 0.2s ease ${i*25}ms both`,
+                      background:destination?.name===p.name?`${accent}18`:tk.bgCard,
+                      border:`1px solid ${destination?.name===p.name?accent:tk.border}`}}
+                    onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor=accent}}
+                    onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=destination?.name===p.name?accent:tk.border}}>
+                    <span style={{fontSize:14,flexShrink:0}}>{catIcon(p.tags?.amenity||p.tags?.shop||p.tags?.tourism||"")}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:9.5,fontWeight:"bold",color:tk.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name||"Unnamed"}</div>
+                      <div style={{fontSize:7.5,color:accentDim,marginTop:1}}>
+                        {p.tags?.amenity||p.tags?.shop||p.tags?.tourism||"place"}
+                        {coords&&p.lat&&p.lon&&` · ${calcDist(coords.lat,coords.lng,p.lat,p.lon).toFixed(1)} km`}
                       </div>
-                    )
-                  })}
+                    </div>
+                    {destination?.name===p.name&&<span style={{fontSize:10,color:accent}}>▶</span>}
+                  </div>
+                ))}
+                <div style={{marginTop:"auto",padding:"6px 10px",borderRadius:4,
+                  background:tk.bgCard,border:`1px solid ${tk.border}`,display:"flex",alignItems:"center",gap:7}}>
+                  <div style={{width:5,height:5,borderRadius:"50%",flexShrink:0,
+                    background:gpsError?tk.red:coords?tk.green:tk.amber}}/>
+                  <span style={{fontSize:8,color:tk.textSub,flex:1,letterSpacing:0.5}}>
+                    {destination?`▶ ${destination.name}`
+                      :gpsError?`⚠ ${gpsError}`
+                      :coords?`GPS ±${Math.round(accuracy||0)}m`
+                      :"GPS..."}
+                  </span>
                 </div>
-              )}
-
-              <div style={{marginTop:"auto",padding:"5px 8px",background:"rgba(0,255,0,0.07)",
-                border:"1px solid rgba(0,255,136,0.2)",borderRadius:5,color:"#0f8",fontSize:9,letterSpacing:1}}>
-                {destination
-                  ? `▶ ${lang==="en"?"Routing to":"Menuju"}: ${destination.name}`
-                  : gpsError?`⚠ ${gpsError}`:coords?(lang==="en"?"● GPS ACTIVE":"● GPS AKTIF"):(lang==="en"?"○ Waiting GPS":"○ Menunggu GPS")}
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {activeFeature==="notify"&&(
-          <div className="flex flex-col gap-1.75 overflow-y-auto h-full">
-            {notifs.length===0&&<div style={{color:accentDim,fontSize:10,textAlign:"center",marginTop:20,letterSpacing:1}}>{lang==="en"?"Waiting for events...":"Menunggu event..."}</div>}
-            {notifs.map((n,i)=>(<div key={n.id} className="flex items-start gap-2.5 rounded-[5px]" style={{padding:"8px 10px",background:i===0?accentFaint:"transparent",border:`1px solid ${i===0?accentDim:`${accent}15`}`,animation:"fadeIn 0.3s ease",animationFillMode:"both"}}><span className="text-[13px]" style={{color:n.type==="net"?"#0f8":n.type==="battery"?"#ff0":n.type==="gps"?accent:"#f0f"}}>{n.icon}</span><span className="flex-1 text-[11px] leading-relaxed" style={{color:"#cde"}}>{n.msg}</span><span className="text-[9px] whitespace-nowrap" style={{color:accentDim}}>{n.time}</span></div>))}
-          </div>
-        )}
-
-        {activeFeature==="home"&&<HomePanelNews accent={accent} accentDim={accentDim} accentFaint={accentFaint} lang={lang}/>}
-        {activeFeature==="voice"&&<VoicePanel t={t} accent={accent} onAction={(action)=>{
-          if(action.type==="navigate") setActiveFeature((action as any).feature)
-          else if(action.type==="search_nearby") { setActiveFeature("nav"); if(coords) searchNearbyByQuery((action as any).query??"",coords.lat,coords.lng) }
-        }}/>}
-        {activeFeature==="translate"&&<TranslatePanel accent={accent} accentDim={accentDim} accentFaint={accentFaint} targetLang={lang}/>}
-        {activeFeature==="ai"&&<AIPanel accent={accent} accentDim={accentDim} accentFaint={accentFaint} lang={lang}/>}
-        {activeFeature==="health"&&<HealthPanel t={t}/>}
-        {activeFeature==="detect"&&<DetectPanel accent={accent} accentDim={accentDim} accentFaint={accentFaint} lang={lang}/>}
+          {/* ── Notify Panel ── */}
+          {activeFeature==="notify"&&(
+            <div style={{display:"flex",flexDirection:"column",height:"100%",gap:6}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                flexShrink:0,paddingBottom:6,borderBottom:`1px solid ${tk.border}`}}>
+                <span style={{fontSize:11,fontWeight:"bold",color:accent,letterSpacing:2,
+                  textShadow:`0 0 8px ${accent}66`}}>
+                  {lang==="en"?"◉ ALERTS":"◉ NOTIFIKASI"}
+                </span>
+                {notifs.length>0&&<span style={{fontSize:7.5,padding:"2px 8px",borderRadius:2,
+                  background:`${accent}18`,color:accent,border:`1px solid ${accent}`,letterSpacing:1}}>
+                  {notifs.length} {lang==="en"?"NEW":"BARU"}
+                </span>}
+              </div>
+              <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:5}}>
+                {notifs.length===0&&<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:8,opacity:0.35}}>
+                  <div style={{fontSize:24}}>◉</div>
+                  <span style={{fontSize:8,color:accentDim,letterSpacing:3}}>{lang==="en"?"ALL CLEAR":"SEMUA BERSIH"}</span>
+                </div>}
+                {notifs.map((n,i)=>(
+                  <div key={n.id}
+                    style={{display:"flex",gap:10,padding:"8px 10px",borderRadius:4,
+                      background:i===0?`${accent}10`:tk.bgCard,
+                      border:`1px solid ${i===0?accentDim:tk.border}`,
+                      animation:"fadeIn 0.3s ease"}}>
+                    <div style={{width:28,height:28,borderRadius:4,flexShrink:0,
+                      background:n.type==="net"?tk.greenS:n.type==="battery"?tk.amberS:tk.blueS,
+                      border:`1px solid ${n.type==="net"?tk.green:n.type==="battery"?tk.amber:tk.blue}44`,
+                      display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>
+                      {n.icon}
+                    </div>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:9.5,color:tk.text,lineHeight:1.55}}>{n.msg}</div>
+                      <div style={{fontSize:7.5,color:tk.textMuted,marginTop:2,letterSpacing:0.5}}>{n.time}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* ── Tab Bar ── */}
+      {!hidden&&(
+        <div style={{
+          position:"absolute",bottom:0,left:0,right:0,zIndex:20,
+          display:"flex",alignItems:"stretch",height:38,
+          background: isLight
+            ? "rgba(222,236,252,0.98)"
+            : "rgba(0,8,20,0.9)",
+          borderTop:`1px solid ${tk.border}`,
+        }}>
+          {tabs.map((tab,i)=>{
+            const active = activeFeature===tab.id
+            return (
+              <button key={tab.id} onClick={()=>setActiveFeature(tab.id)}
+                style={{
+                  flex:1,display:"flex",flexDirection:"column",alignItems:"center",
+                  justifyContent:"center",gap:2,border:"none",cursor:"pointer",
+                  background:active?`${accent}18`:"transparent",
+                  borderRight:i<tabs.length-1?`1px solid ${tk.border}`:"none",
+                  borderTop:active?`1.5px solid ${accent}`:"1.5px solid transparent",
+                  color:active?accent:tk.textMuted,
+                  transition:"all 0.18s",
+                }}>
+                <div style={{fontSize:12,lineHeight:1,
+                  textShadow:active?`0 0 8px ${accent}`:undefined}}>
+                  {tab.icon}
+                </div>
+                <div style={{fontSize:6.5,letterSpacing:"0.04em",
+                  fontWeight:active?"bold":"normal",lineHeight:1}}>
+                  {tab.label}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {incomingCall&&(
+        <IncomingCallBubble
+          call={incomingCall} accent={accent} accentDim={accentDim} lang={lang} tk={tk}
+          onAnswer={()=>{}} onDecline={()=>setIncomingCall(null)}
+        />
+      )}
     </div>
   )
 }
