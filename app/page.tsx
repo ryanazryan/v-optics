@@ -7,233 +7,218 @@ import { HUDSimulator } from "@/components/v-optics/hud-simulator"
 import { VoicePanel } from "@/components/v-optics/voice-panel"
 import { SettingsPanel } from "@/components/v-optics/settings-panel"
 import {
-  LandingSection,
+  GlassesHero,
+  ProductSection,
   FeaturesSection,
+  HowItWorksSection,
   RoadmapSection,
+  CTASection,
 } from "@/components/v-optics/landing-sections"
-import { PreOrderModal } from "@/components/v-optics/preorder-modal"
 
-// ── Tipe aksi yang bisa dipicu voice command ──────────────────────────────────
 export type VoiceAction =
-  | { type: "navigate"; feature: "nav" | "notify" | "translate" | "ai" | "health" | "detect" | "voice" }
+  | { type: "navigate"; feature: "nav"|"notify"|"translate"|"ai"|"health"|"detect"|"voice" }
   | { type: "search_nearby"; query: string }
   | { type: "toggle_hide_ui" }
   | { type: "toggle_setting"; key: keyof HUDSettings }
   | { type: "none" }
 
-function StarField() {
-  const [stars, setStars] = useState<
-    { id: number; left: string; top: string; size: number; opacity: number }[]
-  >([])
-
-  useEffect(() => {
-    const generated = Array.from({ length: 70 }, (_, i) => ({
-      id: i,
-      left: `${Math.random() * 100}%`,
-      top: `${Math.random() * 100}%`,
-      size: Math.random() > 0.8 ? 2 : 1,
-      opacity: Math.random() * 0.35 + 0.05,
-    }))
-    setStars(generated)
-  }, [])
-
-  return (
-    <div className="fixed inset-0 pointer-events-none z-0">
-      {stars.map((star) => (
-        <div key={star.id} className="absolute" style={{
-          left: star.left, top: star.top,
-          width: star.size, height: star.size,
-          background: "#0ff", opacity: star.opacity,
-        }} />
-      ))}
-    </div>
-  )
-}
-
 export default function VOpticsApp() {
-  const [page, setPage] = useState<"home" | "demo">("home")
-  const [hudTab, setHudTab] = useState<"hud" | "voice" | "settings">("hud")
-  const [showPreorder, setShowPreorder] = useState(false)
-  const [settings, setSettings] = useState<HUDSettings>(defaultSettings)
-
-  // ── Shared state — dikontrol voice & HUD ────────────────────────────────────
+  const [page,          setPage]          = useState<"home"|"demo">("home")
+  const [hudTab,        setHudTab]        = useState<"hud"|"voice"|"settings">("hud")
+  const [settings,      setSettings]      = useState<HUDSettings>(defaultSettings)
   const [activeFeature, setActiveFeature] = useState<string>("nav")
-  const [voiceAction, setVoiceAction] = useState<VoiceAction>({ type: "none" })
+  const [voiceAction,   setVoiceAction]   = useState<VoiceAction>({ type:"none" })
+  const [scrolled,      setScrolled]      = useState(false)
 
   const t = T[settings.language] || T.id
 
-  // Brightness real — ubah seluruh halaman
   useEffect(() => {
     document.documentElement.style.filter = `brightness(${settings.brightness}%)`
     return () => { document.documentElement.style.filter = "" }
   }, [settings.brightness])
 
-  // Accent color CSS variable global
   useEffect(() => {
     const c = settings.accentColor ?? "#00ffff"
     document.documentElement.style.setProperty("--accent", c)
   }, [settings.accentColor])
 
-  // ── Handler dipanggil VoicePanel saat command dikenali ─────────────────────
+  useEffect(() => {
+    const fn = () => setScrolled(window.scrollY > 40)
+    window.addEventListener("scroll", fn, { passive:true })
+    return () => window.removeEventListener("scroll", fn)
+  }, [])
+
   const handleVoiceAction = useCallback((action: VoiceAction) => {
     setVoiceAction(action)
-
     switch (action.type) {
       case "navigate":
-        // Pindah ke tab HUD dulu, lalu set feature
-        setHudTab("hud")
-        setActiveFeature(action.feature)
-        break
-
+        setHudTab("hud"); setActiveFeature(action.feature); break
       case "toggle_hide_ui":
-        setSettings(s => ({ ...s, hideUI: !s.hideUI }))
-        break
-
+        setSettings(s => ({ ...s, hideUI: !s.hideUI })); break
       case "toggle_setting":
-        setSettings(s => ({ ...s, [action.key]: !s[action.key] }))
-        break
-
+        setSettings(s => ({ ...s, [action.key]: !s[action.key] })); break
       case "search_nearby":
-        // Buka tab nav, HUDSimulator akan terima searchQuery
-        setHudTab("hud")
-        setActiveFeature("nav")
-        break
+        setHudTab("hud"); setActiveFeature("nav"); break
     }
   }, [])
 
-  const accent    = settings.accentColor ?? "#00ffff"
-  const accentDim = `${accent}55`
+  const goDemo = () => { setPage("demo"); window.scrollTo(0,0) }
 
   const demoTabs = [
-    { id: "hud"      as const, label: t.tabHUD },
-    { id: "voice"    as const, label: t.tabVoice },
-    { id: "settings" as const, label: t.tabSettings },
+    { id:"hud"      as const, label: t.tabHUD      },
+    { id:"voice"    as const, label: t.tabVoice    },
+    { id:"settings" as const, label: t.tabSettings },
   ]
 
   return (
-    <div className="min-h-screen relative font-sans" style={{ background: "#04080f", color: "#cde" }}>
-      <StarField />
+    <div className="min-h-screen" style={{ background:"#000", color:"#fff" }}>
 
-      {/* Navigation */}
-      <nav className="sticky top-0 z-50 flex justify-between items-center"
-        style={{ padding:"10px 20px", borderBottom:`1px solid ${accentDim}22`,
-          background:"rgba(4,8,15,0.92)", backdropFilter:"blur(12px)" }}>
-        <div className="font-display font-black text-[15px] tracking-widest" style={{ color: accent }}>
-          {t.brand}
-        </div>
-        <div className="flex gap-1 flex-wrap">
-          {([ ["home", t.navHome], ["demo", t.navDemo] ] as const).map(([id, label]) => (
-            <button key={id} onClick={() => setPage(id)}
-              className="font-mono text-[9px] tracking-widest rounded-sm cursor-pointer transition-all duration-200"
-              style={{
-                padding:"6px 14px", background:"transparent",
-                border: page === id ? `1px solid ${accent}` : "1px solid transparent",
-                color: page === id ? accent : accentDim,
-              }}>
-              {label}
-            </button>
-          ))}
-          <button onClick={() => setShowPreorder(true)}
-            className="font-display text-[9px] tracking-widest rounded-sm cursor-pointer ml-1.5"
-            style={{ padding:"6px 14px", background:`${accent}1a`, border:`1px solid ${accent}`, color: accent }}>
-            {t.navPreorder}
+      {/* ── Nav ── */}
+      <nav className="fixed top-0 left-0 right-0 z-50 flex justify-between items-center"
+        style={{
+          padding:"12px 24px",
+          background: scrolled?"rgba(0,0,0,0.92)":"transparent",
+          borderBottom: scrolled?"1px solid rgba(255,255,255,0.06)":"none",
+          backdropFilter: scrolled?"blur(12px)":"none",
+          transition:"all 0.3s ease",
+        }}>
+        {/* Logo */}
+        <button onClick={() => { setPage("home"); window.scrollTo(0,0) }}
+          className="font-black tracking-[4px] text-[14px] cursor-pointer"
+          style={{ color:"#fff", fontFamily:"'Arial Black',sans-serif",
+            background:"none", border:"none" }}>
+          V-OPTICS
+        </button>
+
+        {/* Nav links + Demo CTA */}
+        <div className="flex items-center gap-3">
+          <button onClick={() => { setPage("home"); window.scrollTo(0,0) }}
+            className="font-mono text-[9px] tracking-[3px] cursor-pointer transition-all"
+            style={{ background:"none", border:"none",
+              color: page==="home"?"rgba(255,255,255,0.9)":"rgba(255,255,255,0.3)" }}>
+            HOME
+          </button>
+
+          {/* DEMO — prominent CTA button */}
+          <button onClick={goDemo}
+            className="font-mono text-[10px] tracking-[3px] font-bold cursor-pointer transition-all duration-200"
+            style={{
+              padding:"8px 22px",
+              background: page==="demo"?"#fff":"transparent",
+              border:"1.5px solid #fff",
+              color: page==="demo"?"#000":"#fff",
+              borderRadius:2,
+              boxShadow: page==="demo"?"0 0 30px rgba(255,255,255,0.2)":"none",
+            }}
+            onMouseEnter={e=>{
+              if(page!=="demo"){
+                (e.currentTarget as HTMLElement).style.background="#fff"
+                ;(e.currentTarget as HTMLElement).style.color="#000"
+              }
+            }}
+            onMouseLeave={e=>{
+              if(page!=="demo"){
+                (e.currentTarget as HTMLElement).style.background="transparent"
+                ;(e.currentTarget as HTMLElement).style.color="#fff"
+              }
+            }}>
+            ▶ DEMO
           </button>
         </div>
       </nav>
 
-      <main className="relative z-1">
+      {/* ── Main ── */}
+      <main>
         {page === "home" && (
           <>
-            <LandingSection onPreorder={() => setShowPreorder(true)} t={t} />
-            <FeaturesSection t={t} />
-            <RoadmapSection t={t} />
-            <footer className="text-center font-mono text-[10px]"
-              style={{ padding:"16px", borderTop:`1px solid ${accentDim}22`, color:"#345" }}>
-              {t.footer}
+            <GlassesHero onDemo={goDemo}/>
+            <ProductSection t={t}/>
+            <FeaturesSection t={t}/>
+            <HowItWorksSection/>
+            <RoadmapSection t={t}/>
+            <CTASection onDemo={goDemo}/>
+            <footer className="text-center font-mono text-[9px] tracking-[3px]"
+              style={{ padding:"24px", borderTop:"1px solid rgba(255,255,255,0.05)",
+                color:"rgba(255,255,255,0.15)" }}>
+              © 2025 V-OPTICS · NAUFAL FAIQ AZRYAN
             </footer>
           </>
         )}
 
         {page === "demo" && (
-          <div className="flex flex-col items-center gap-4" style={{ padding:"28px 20px" }}>
+          <div className="flex flex-col items-center gap-4"
+            style={{ padding:"88px 20px 40px", minHeight:"100vh" }}>
 
             {/* Demo tab switcher */}
-            <div className="flex gap-1.5 rounded-md"
-              style={{ background:`${accent}08`, border:`1px solid ${accentDim}`, padding:4 }}>
-              {demoTabs.map((tab) => (
+            <div className="flex gap-1 rounded"
+              style={{ background:"rgba(255,255,255,0.04)",
+                border:"1px solid rgba(255,255,255,0.1)", padding:4 }}>
+              {demoTabs.map(tab => (
                 <button key={tab.id} onClick={() => setHudTab(tab.id)}
-                  className="font-mono text-[9px] tracking-widest rounded cursor-pointer transition-all duration-200"
+                  className="font-mono text-[9px] tracking-[3px] rounded cursor-pointer transition-all"
                   style={{
                     padding:"7px 18px",
-                    background: hudTab === tab.id ? `${accent}20` : "transparent",
-                    border: hudTab === tab.id ? `1px solid ${accent}` : "1px solid transparent",
-                    color: hudTab === tab.id ? accent : accentDim,
+                    background: hudTab===tab.id?"rgba(255,255,255,0.12)":"transparent",
+                    border: hudTab===tab.id?"1px solid rgba(255,255,255,0.3)":"1px solid transparent",
+                    color: hudTab===tab.id?"#fff":"rgba(255,255,255,0.35)",
                   }}>
                   {tab.label}
                 </button>
               ))}
             </div>
 
-            {/* HUD Tab */}
             {hudTab === "hud" && (
               <>
-                <div className="font-display text-[10px] tracking-[4px]" style={{ color: accentDim }}>
-                  {t.hudTitle}
-                </div>
+                <div className="font-mono text-[9px] tracking-[5px]"
+                  style={{ color:"rgba(255,255,255,0.2)" }}>{t.hudTitle}</div>
                 <HUDSimulator
-                  settings={settings}
-                  t={t}
+                  settings={settings} t={t}
                   activeFeature={activeFeature}
                   setActiveFeature={setActiveFeature}
                   voiceAction={voiceAction}
-                  onVoiceActionDone={() => setVoiceAction({ type: "none" })}
+                  onVoiceActionDone={() => setVoiceAction({ type:"none" })}
                 />
-                <div className="font-mono text-[11px] text-center max-w-130" style={{ color:"#456" }}>
-                  {t.hudHint}
-                </div>
+                <div className="font-mono text-[10px] text-center max-w-130"
+                  style={{ color:"rgba(255,255,255,0.2)" }}>{t.hudHint}</div>
               </>
             )}
 
-            {/* Voice Tab */}
             {hudTab === "voice" && (
               <div className="w-full max-w-125">
-                <div className="font-display text-[10px] tracking-[4px] text-center mb-4"
-                  style={{ color: accentDim }}>
-                  {t.voiceTitle}
-                </div>
-                <div className="rounded-xl"
-                  style={{ padding:"24px", border:`1px solid ${accentDim}`, background:`${accent}04` }}>
-                  <VoicePanel
-                    t={t}
-                    accent={accent}
-                    onAction={handleVoiceAction}
-                  />
+                <div className="font-mono text-[9px] tracking-[5px] text-center mb-4"
+                  style={{ color:"rgba(255,255,255,0.2)" }}>{t.voiceTitle}</div>
+                <div className="rounded"
+                  style={{ padding:"24px",
+                    border:"1px solid rgba(255,255,255,0.08)",
+                    background:"rgba(255,255,255,0.02)" }}>
+                  <VoicePanel t={t} accent={settings.accentColor??"#00ffff"} onAction={handleVoiceAction}
+                    theme={{
+                      isLight:    settings.lightMode ?? false,
+                      accent:     settings.accentColor ?? "#00ffff",
+                      textPrimary: settings.lightMode ? "#111" : "rgba(210,225,240,0.9)",
+                      bgCard:     settings.lightMode ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.04)",
+                    }}/>
                 </div>
               </div>
             )}
 
-            {/* Settings Tab */}
             {hudTab === "settings" && (
               <div className="w-full max-w-140">
-                <div className="font-display text-[10px] tracking-[4px] text-center mb-4"
-                  style={{ color: accentDim }}>
-                  {t.settingsTitle}
+                <div className="font-mono text-[9px] tracking-[5px] text-center mb-4"
+                  style={{ color:"rgba(255,255,255,0.2)" }}>{t.settingsTitle}</div>
+                <div className="rounded"
+                  style={{ padding:"20px",
+                    border:"1px solid rgba(255,255,255,0.08)",
+                    background:"rgba(255,255,255,0.02)" }}>
+                  <SettingsPanel settings={settings} setSettings={setSettings} t={t}/>
                 </div>
-                <div className="rounded-xl"
-                  style={{ padding:"20px", border:`1px solid ${accentDim}`, background:`${accent}04` }}>
-                  <SettingsPanel settings={settings} setSettings={setSettings} t={t} />
-                </div>
-                <div className="font-mono text-[10px] text-center mt-2.5" style={{ color:"#456" }}>
-                  {t.settingsHint}
-                </div>
+                <div className="font-mono text-[9px] text-center mt-3"
+                  style={{ color:"rgba(255,255,255,0.15)" }}>{t.settingsHint}</div>
               </div>
             )}
-
           </div>
         )}
       </main>
-
-      {showPreorder && <PreOrderModal onClose={() => setShowPreorder(false)} t={t} />}
     </div>
   )
 }

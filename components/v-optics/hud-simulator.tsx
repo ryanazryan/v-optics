@@ -26,7 +26,7 @@ interface NewsArticle {
 function getPlaceholderNews(lang: string): NewsArticle[] {
   const isId = lang !== "en"
   return isId ? [
-    { id:"1", title:"Teknologi AI Semakin Canggih di 2025", summary:"Model bahasa generasi terbaru mampu memahami konteks lebih dalam dan berinteraksi lebih natural dengan pengguna sehari-hari.", category:"Teknologi", source:"TechID", time:"5 mnt lalu", imageGradient:"linear-gradient(135deg,#0a2a4a,#1a4a8a)", emoji:"🤖" },
+    { id:"1", title:"Teknologi AI Semakin Canggih di 2026", summary:"Model bahasa generasi terbaru mampu memahami konteks lebih dalam dan berinteraksi lebih natural dengan pengguna sehari-hari.", category:"Teknologi", source:"TechID", time:"5 mnt lalu", imageGradient:"linear-gradient(135deg,#0a2a4a,#1a4a8a)", emoji:"🤖" },
     { id:"2", title:"Pasar Saham Asia Menguat Pagi Ini", summary:"Bursa efek di kawasan Asia Pasifik mencatat kenaikan di tengah sentimen positif dari data ekonomi Amerika Serikat yang lebih baik.", category:"Ekonomi", source:"BisnisNews", time:"12 mnt lalu", imageGradient:"linear-gradient(135deg,#0a3a1a,#1a6a2a)", emoji:"📈" },
     { id:"3", title:"Gempa M5.2 Guncang Sulawesi Tengah", summary:"BMKG melaporkan gempa berkekuatan 5.2 SR mengguncang wilayah Palu pukul 07.34 WIB. Warga diminta tetap waspada.", category:"Nasional", source:"BMKG", time:"18 mnt lalu", imageGradient:"linear-gradient(135deg,#3a1a0a,#6a2a0a)", emoji:"🌍" },
     { id:"4", title:"Timnas Indonesia Menang 2-1 Lawan Vietnam", summary:"Skuad Garuda berhasil mengamankan tiga poin dalam laga kualifikasi Piala Asia di Stadion GBK Jakarta.", category:"Olahraga", source:"SportID", time:"1 jam lalu", imageGradient:"linear-gradient(135deg,#1a0a3a,#3a1a6a)", emoji:"⚽" },
@@ -332,7 +332,7 @@ function AppsPanel({accent,accentDim,accentFaint,lang,theme,onIncomingCall}:{
           <button onClick={()=>setActiveApp(null)}
             style={{padding:"3px 9px",borderRadius:3,cursor:"pointer",
               border:`1px solid ${accentDim}`,background:"transparent",
-              color:accentDim,fontSize:9,fontFamily:"monospace"}}>←</button>
+              color:accentDim,fontSize:9,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>←</button>
           <div style={{width:18,height:18,borderRadius:5,overflow:"hidden",flexShrink:0}}>
             <AppIcon id={app.id} size={18}/>
           </div>
@@ -396,7 +396,7 @@ function AppsPanel({accent,accentDim,accentFaint,lang,theme,onIncomingCall}:{
         <button onClick={()=>setActiveApp(null)}
           style={{padding:"3px 9px",borderRadius:3,cursor:"pointer",
             border:`1px solid ${accentDim}`,background:"transparent",
-            color:accentDim,fontSize:9,fontFamily:"monospace"}}>←</button>
+            color:accentDim,fontSize:9,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>←</button>
         <div style={{width:20,height:20,borderRadius:6,overflow:"hidden"}}>
           <AppIcon id={app.id} size={20}/>
         </div>
@@ -426,7 +426,7 @@ function AppsPanel({accent,accentDim,accentFaint,lang,theme,onIncomingCall}:{
               border:`1px solid ${i===0?app.color:accentDim}`,
               background:i===0?`${app.color}18`:T.bgCard,
               color:i===0?app.color:T.textPrimary,
-              fontSize:9,fontFamily:"monospace",textAlign:"left",
+              fontSize:9,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",textAlign:"left",
               transition:"all 0.15s"}}
             onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor=app.color}}
             onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=i===0?app.color:accentDim}}>
@@ -450,7 +450,7 @@ function AppsPanel({accent,accentDim,accentFaint,lang,theme,onIncomingCall}:{
   return (
     <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
       <div style={{fontSize:11,fontWeight:"bold",color:accent,
-        marginBottom:6,letterSpacing:0.5,textShadow:`0 0 8px ${accent}66`}}>
+        marginBottom:6,letterSpacing:0.5}}>
         ⊞ {lang==="en"?"APPLICATIONS":"APLIKASI"}
       </div>
       <div style={{flex:1,overflowY:"auto",scrollbarWidth:"thin",
@@ -641,7 +641,7 @@ function InlineArticleReader({url,accent,accentDim,T,lang}:{
     <button onClick={fetchArticle}
       style={{width:"100%",padding:"7px 10px",borderRadius:6,cursor:"pointer",
         border:`1px solid ${accentDim}`,background:`${accent}0f`,
-        color:accent,fontSize:8.5,fontFamily:"monospace",letterSpacing:0.8,
+        color:accent,fontSize:8.5,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",letterSpacing:0.8,
         display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
       <span style={{fontSize:10}}>⬡</span>
       {lang==="en"?"LOAD FULL ARTICLE IN HUD":"BACA ARTIKEL LENGKAP DI SINI"}
@@ -818,14 +818,14 @@ function HomePanelNews({accent,accentDim,accentFaint,lang,theme}:{accent:string;
         <button onClick={()=>{setSelected(null);setAiSummary("")}}
           style={{flex:1,padding:"6px",borderRadius:4,cursor:"pointer",
             border:`1px solid ${accentDim}`,background:T.bgInset,
-            color:T.textSecondary,fontSize:9,fontFamily:"monospace"}}>
+            color:T.textSecondary,fontSize:9,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>
           ← {lang==="en"?"Back":"Kembali"}
         </button>
         {!aiSummary&&!fetchingAI&&(
           <button onClick={()=>askAI(selected)}
             style={{flex:2,padding:"6px",borderRadius:4,cursor:"pointer",
               border:`1px solid ${accent}`,background:`${accent}18`,
-              color:accent,fontSize:9,fontFamily:"monospace",letterSpacing:1}}>
+              color:accent,fontSize:9,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",letterSpacing:1}}>
             ⬡ {lang==="en"?"AI Analysis":"Analisis AI"}
           </button>
         )}
@@ -839,8 +839,7 @@ function HomePanelNews({accent,accentDim,accentFaint,lang,theme}:{accent:string;
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",marginBottom:5,flexShrink:0}}>
         <div style={{flex:1}}>
-          <div style={{fontSize:11,fontWeight:"bold",color:accent,letterSpacing:0.5,
-            textShadow:`0 0 8px ${accent}66`}}>
+          <div style={{fontSize:11,fontWeight:"bold",color:accent,letterSpacing:0.5}}>
             {lang==="en"?"📰 LIVE FEED":"📰 BERITA LANGSUNG"}
           </div>
           <div style={{fontSize:7.5,color:accentDim}}>
@@ -1979,7 +1978,7 @@ Balas HANYA dalam format JSON ini (tanpa markdown, tanpa teks lain):
             placeholder={targetLang==="en"?"Type or paste text here...":"Ketik atau paste teks di sini..."}
             style={{flex:1,background:"rgba(0,0,0,0.5)",border:`1px solid ${accentDim}`,
               borderRadius:6,color:theme.textPrimary,fontSize:11,padding:"8px 10px",
-              fontFamily:"monospace",resize:"none",outline:"none",lineHeight:1.6}}/>
+              fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",resize:"none",outline:"none",lineHeight:1.6}}/>
           <div style={{fontSize:8,color:accentDim,textAlign:"right"}}>{manualText.length}/500</div>
         </div>
       )}
@@ -2016,8 +2015,7 @@ Balas HANYA dalam format JSON ini (tanpa markdown, tanpa teks lain):
               {capturedText.slice(0,150)}{capturedText.length>150?"...":""}
             </div>
             <div style={{fontSize:8,color:accentDim,alignSelf:"center"}}>→</div>
-            <div style={{flex:1,fontSize:12,color:accent,fontWeight:"bold",
-              textShadow:`0 0 8px ${accent}`,lineHeight:1.5}}>
+            <div style={{flex:1,fontSize:12,color:accent,fontWeight:"bold",lineHeight:1.5}}>
               {translated}
             </div>
           </div>
@@ -2027,7 +2025,7 @@ Balas HANYA dalam format JSON ini (tanpa markdown, tanpa teks lain):
       {/* ── Tombol ── */}
       <div style={{display:"flex",gap:5}}>
         <button onClick={()=>{ setShowManual(v=>!v); if(cameraOn) stopCamera() }}
-          style={{padding:"6px 8px",fontFamily:"monospace",fontSize:8,letterSpacing:1,
+          style={{padding:"6px 8px",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",fontSize:8,letterSpacing:1,
             background:showManual?`${accent}20`:accentDim,
             border:`1px solid ${showManual?accent:accentDim}`,
             color:showManual?accent:"#89a",borderRadius:4,cursor:"pointer"}}>
@@ -2036,7 +2034,7 @@ Balas HANYA dalam format JSON ini (tanpa markdown, tanpa teks lain):
 
         {showManual ? (
           <button onClick={translateManual} disabled={scanning||!manualText.trim()}
-            style={{flex:1,padding:"6px",fontFamily:"monospace",fontSize:9,letterSpacing:1,
+            style={{flex:1,padding:"6px",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",fontSize:9,letterSpacing:1,
               background:scanning?`${accent}11`:accentDim,
               border:`1px solid ${scanning||!manualText.trim()?accentDim:accent}`,
               color:scanning||!manualText.trim()?"#456":accent,
@@ -2045,7 +2043,7 @@ Balas HANYA dalam format JSON ini (tanpa markdown, tanpa teks lain):
           </button>
         ) : !cameraOn ? (
           <button onClick={startCamera}
-            style={{flex:1,padding:"6px",fontFamily:"monospace",fontSize:9,letterSpacing:1,
+            style={{flex:1,padding:"6px",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",fontSize:9,letterSpacing:1,
               background:`${accent}15`,border:`1px solid ${accentDim}`,
               color:accent,borderRadius:4,cursor:"pointer"}}>
             {targetLang==="en"?"📷 ENABLE CAMERA":"📷 AKTIFKAN KAMERA"}
@@ -2053,7 +2051,7 @@ Balas HANYA dalam format JSON ini (tanpa markdown, tanpa teks lain):
         ) : (
           <>
             <button onClick={scanAndTranslate} disabled={scanning}
-              style={{flex:2,padding:"6px",fontFamily:"monospace",fontSize:9,letterSpacing:1,
+              style={{flex:2,padding:"6px",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",fontSize:9,letterSpacing:1,
                 background:scanning?`${accent}11`:`${accent}15`,
                 border:`1px solid ${scanning?accentDim:accent}`,
                 color:scanning?accentDim:accent,borderRadius:4,
@@ -2061,7 +2059,7 @@ Balas HANYA dalam format JSON ini (tanpa markdown, tanpa teks lain):
               {scanning?(targetLang==="en"?"⏳ SCANNING...":"⏳ MEMINDAI..."):(targetLang==="en"?"◆ SCAN & TRANSLATE":"◆ SCAN & TERJEMAH")}
             </button>
             <button onClick={stopCamera}
-              style={{padding:"6px 8px",fontFamily:"monospace",fontSize:9,
+              style={{padding:"6px 8px",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",fontSize:9,
                 background:"rgba(255,60,60,0.08)",border:"1px solid rgba(255,60,60,0.3)",
                 color:"#f66",borderRadius:4,cursor:"pointer"}}>
               STOP
@@ -2225,7 +2223,7 @@ Maksimal 3 kalimat kecuali penjelasan detail diminta.`
           ? <button onClick={startCamera}
               style={{padding:"8px",borderRadius:6,border:`1px solid ${accentDim}`,
                 background:accentFaint,color:accent,fontSize:9,letterSpacing:1.5,
-                cursor:"pointer",fontFamily:"monospace",transition:"all 0.2s"}}
+                cursor:"pointer",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",transition:"all 0.2s"}}
               onMouseEnter={e=>{e.currentTarget.style.borderColor=accent;e.currentTarget.style.background=`${accent}18`}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor=accentDim;e.currentTarget.style.background=accentFaint}}>
               ⬡ AKTIFKAN KAMERA
@@ -2235,14 +2233,14 @@ Maksimal 3 kalimat kecuali penjelasan detail diminta.`
                 style={{flex:2,padding:"7px",borderRadius:6,cursor:analyzing?"not-allowed":"pointer",
                   border:`1px solid ${analyzing?accentDim:accent}`,
                   background:analyzing?accentFaint:`${accent}18`,
-                  color:analyzing?accentDim:accent,fontSize:9,letterSpacing:1,fontFamily:"monospace",
+                  color:analyzing?accentDim:accent,fontSize:9,letterSpacing:1,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
                   transition:"all 0.2s"}}>
                 {analyzing?"⟳ AI...":"⬡ ANALISIS"}
               </button>
               <button onClick={stopCamera}
                 style={{flex:1,padding:"7px",borderRadius:6,cursor:"pointer",
                   border:"1px solid rgba(255,80,80,0.4)",background:"rgba(255,60,60,0.07)",
-                  color:"#f66",fontSize:9,fontFamily:"monospace"}}>
+                  color:"#f66",fontSize:9,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>
                 STOP
               </button>
             </div>
@@ -2368,12 +2366,12 @@ Maksimal 3 kalimat kecuali penjelasan detail diminta.`
                 style={{flex:1,padding:"5px 8px",borderRadius:6,fontSize:9,
                   background:theme.bgInset,
                   border:`1px solid ${accentDim}`,color:theme.textPrimary,
-                  outline:"none",fontFamily:"monospace"}}/>
+                  outline:"none",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}/>
               <button onClick={()=>analyze()} disabled={analyzing}
                 style={{padding:"5px 10px",borderRadius:6,cursor:analyzing?"not-allowed":"pointer",
                   border:`1px solid ${analyzing?accentDim:accent}`,
                   background:analyzing?accentFaint:`${accent}18`,
-                  color:analyzing?accentDim:accent,fontSize:9,fontFamily:"monospace"}}>
+                  color:analyzing?accentDim:accent,fontSize:9,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>
                 ➤
               </button>
             </div>
@@ -2622,7 +2620,7 @@ Aturan:
           <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}>
             <span style={{fontSize:22,color:accentDim}}>⬢</span>
             <button onClick={startCamera}
-              style={{padding:"7px 18px",fontFamily:"monospace",fontSize:9,letterSpacing:2,
+              style={{padding:"7px 18px",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",fontSize:9,letterSpacing:2,
                 background:accentFaint,border:`1px solid ${accentDim}`,color:accent,borderRadius:4,cursor:"pointer"}}>
               {lang==="en"?"START DETECTION":"MULAI DETEKSI"}
             </button>
@@ -2652,7 +2650,7 @@ Aturan:
         {cameraOn && (
           <button onClick={stopCamera}
             style={{position:"absolute",bottom:6,right:6,zIndex:4,
-              padding:"3px 8px",fontFamily:"monospace",fontSize:8,
+              padding:"3px 8px",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",fontSize:8,
               background:"rgba(255,60,60,0.15)",border:"1px solid rgba(255,60,60,0.4)",
               color:"#f88",borderRadius:3,cursor:"pointer",letterSpacing:1}}>
             STOP
@@ -2666,14 +2664,14 @@ Aturan:
         {cameraOn && (
           <div style={{display:"flex",gap:5}}>
             <button onClick={scanFrame} disabled={detecting}
-              style={{flex:2,padding:"6px",fontFamily:"monospace",fontSize:8,letterSpacing:1,
+              style={{flex:2,padding:"6px",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",fontSize:8,letterSpacing:1,
                 background:detecting?`${accent}11`:`${accent}18`,
                 border:`1px solid ${detecting?accentDim:accent}`,
                 color:detecting?accentDim:accent,borderRadius:4,cursor:detecting?"not-allowed":"pointer"}}>
               {detecting?"⏳ SCANNING...":"◆ SCAN"}
             </button>
             <button onClick={()=>setAutoMode(v=>!v)}
-              style={{flex:1,padding:"6px",fontFamily:"monospace",fontSize:8,
+              style={{flex:1,padding:"6px",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",fontSize:8,
                 background:autoMode?`${accent}25`:accentDim,
                 border:`1px solid ${autoMode?accent:accentDim}`,
                 color:autoMode?accent:"#89a",borderRadius:4,cursor:"pointer",letterSpacing:1}}>
@@ -2734,7 +2732,7 @@ Aturan:
   )
 }
 // ── MAIN ──────────────────────────────────────────────────────────────────────
-// ── MAIN HUD SIMULATOR ────────────────────────────────────────────────────────
+
 // ── MAIN HUD SIMULATOR ────────────────────────────────────────────────────────
 
 interface HUDSimulatorProps {
@@ -2748,7 +2746,6 @@ interface HUDSimulatorProps {
 
 export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, setActiveFeature: setActiveFeatureProp, voiceAction, onVoiceActionDone }: HUDSimulatorProps) {
   const [time, setTime] = useState(new Date())
-  const [scanLine, setScanLine] = useState(0)
   const [internalFeature, setInternalFeature] = useState("home")
   const [incomingCall, setIncomingCall] = useState<IncomingCall|null>(null)
   const [pendingSearch, setPendingSearch] = useState<string|null>(null)
@@ -2765,48 +2762,48 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
   const userAccent = settings?.accentColor
 
   const darkTk = {
-    bg:          "linear-gradient(135deg,#04080f 0%,#0a1628 50%,#060c18 100%)",
-    bgSolid:     "#04080f",
-    bgCard:      "rgba(0,255,200,0.03)",
-    bgCardHov:   "rgba(0,255,200,0.06)",
-    bgInset:     "rgba(0,255,200,0.05)",
-    border:      `${userAccent??"#00ffcc"}33`,
-    borderBright:`${userAccent??"#00ffcc"}88`,
-    text:        "#d0f0e8",
-    textSub:     "#7aabb0",
-    textMuted:   "#3a6870",
-    textFaint:   "#1a3840",
-    accent:      userAccent ?? "#00ffcc",
-    accentDim:   userAccent ? `${userAccent}88` : "#00ffcc88",
-    accentFaint: userAccent ? `${userAccent}12` : "#00ffcc12",
-    accentGlow:  userAccent ? `${userAccent}40` : "#00ffcc40",
-    scanColor:   "rgba(0,255,200,0.025)",
-    green:  "#00ff88", greenS: "rgba(0,255,136,0.15)",
-    red:    "#ff4466", redS:   "rgba(255,68,102,0.15)",
-    amber:  "#ffcc00", amberS: "rgba(255,204,0,0.15)",
-    blue:   "#00aaff", blueS:  "rgba(0,170,255,0.15)",
+    bg:          "#0a0a0a",
+    bgSolid:     "#0a0a0a",
+    bgCard:      "rgba(255,255,255,0.04)",
+    bgCardHov:   "rgba(255,255,255,0.07)",
+    bgInset:     "rgba(255,255,255,0.06)",
+    border:      `${userAccent??"#ffffff"}22`,
+    borderBright:`${userAccent??"#ffffff"}55`,
+    text:        "#f0f0f0",
+    textSub:     "#999999",
+    textMuted:   "#555555",
+    textFaint:   "#333333",
+    accent:      userAccent ?? "#ffffff",
+    accentDim:   userAccent ? `${userAccent}66` : "#ffffff66",
+    accentFaint: userAccent ? `${userAccent}12` : "#ffffff12",
+    accentGlow:  userAccent ? `${userAccent}30` : "#ffffff30",
+    scanColor:   "rgba(255,255,255,0.015)",
+    green:  "#4ade80", greenS: "rgba(74,222,128,0.15)",
+    red:    "#f87171", redS:   "rgba(248,113,113,0.15)",
+    amber:  "#fbbf24", amberS: "rgba(251,191,36,0.15)",
+    blue:   "#60a5fa", blueS:  "rgba(96,165,250,0.15)",
   }
   const lightTk = {
-    bg:          "linear-gradient(135deg,#f0f4f8 0%,#e8eef5 50%,#f2f6fa 100%)",
-    bgSolid:     "#f0f4f8",
-    bgCard:      "rgba(255,255,255,0.85)",
-    bgCardHov:   "rgba(255,255,255,0.95)",
-    bgInset:     "rgba(0,100,180,0.05)",
-    border:      `${userAccent??"#0066cc"}44`,
-    borderBright:`${userAccent??"#0066cc"}99`,
-    text:        "#0a2030",
-    textSub:     "#2a5070",
-    textMuted:   "#5a8090",
-    textFaint:   "#a0c0d0",
-    accent:      userAccent ?? "#0066cc",
-    accentDim:   userAccent ? `${userAccent}88` : "#0066cc88",
-    accentFaint: userAccent ? `${userAccent}12` : "#0066cc12",
-    accentGlow:  userAccent ? `${userAccent}30` : "#0066cc30",
-    scanColor:   "rgba(0,100,200,0.03)",
-    green:  "#00aa55", greenS: "rgba(0,170,85,0.12)",
-    red:    "#cc2233", redS:   "rgba(204,34,51,0.12)",
-    amber:  "#cc8800", amberS: "rgba(204,136,0,0.12)",
-    blue:   "#0055cc", blueS:  "rgba(0,85,204,0.12)",
+    bg:          "#ffffff",
+    bgSolid:     "#ffffff",
+    bgCard:      "rgba(0,0,0,0.03)",
+    bgCardHov:   "rgba(0,0,0,0.06)",
+    bgInset:     "rgba(0,0,0,0.05)",
+    border:      `${userAccent??"#000000"}18`,
+    borderBright:`${userAccent??"#000000"}44`,
+    text:        "#111111",
+    textSub:     "#555555",
+    textMuted:   "#999999",
+    textFaint:   "#cccccc",
+    accent:      userAccent ?? "#000000",
+    accentDim:   userAccent ? `${userAccent}66` : "#00000066",
+    accentFaint: userAccent ? `${userAccent}10` : "#00000010",
+    accentGlow:  userAccent ? `${userAccent}20` : "#00000020",
+    scanColor:   "rgba(0,0,0,0.015)",
+    green:  "#16a34a", greenS: "rgba(22,163,74,0.12)",
+    red:    "#dc2626", redS:   "rgba(220,38,38,0.12)",
+    amber:  "#d97706", amberS: "rgba(217,119,6,0.12)",
+    blue:   "#2563eb", blueS:  "rgba(37,99,235,0.12)",
   }
   const tk = isLight ? lightTk : darkTk
   const accent      = tk.accent
@@ -2853,18 +2850,15 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
   },[settings])
 
   useEffect(()=>{ const i=setInterval(()=>setTime(new Date()),1000); return()=>clearInterval(i) },[])
-  useEffect(()=>{ const i=setInterval(()=>setScanLine(p=>(p+1)%100),28); return()=>clearInterval(i) },[])
 
   useEffect(()=>{
-    const id="voptics-cp-kf"; if(document.getElementById(id)) return
+    const id="voptics-kf"; if(document.getElementById(id)) return
     const s=document.createElement("style"); s.id=id
     s.textContent=`
       @keyframes spin{to{transform:rotate(360deg)}}
       @keyframes fadeIn{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
       @keyframes bounce{0%,80%,100%{transform:translateY(0);opacity:.6}40%{transform:translateY(-4px);opacity:1}}
       @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-      @keyframes cpBlink{0%,100%{opacity:1}49%{opacity:1}50%{opacity:0}99%{opacity:0}}
-      @keyframes cpGlow{0%,100%{text-shadow:0 0 6px currentColor}50%{text-shadow:0 0 14px currentColor,0 0 28px currentColor}}
     `
     document.head.appendChild(s)
   },[])
@@ -2897,30 +2891,14 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
         borderRadius:8,
         border:`1px solid ${tk.border}`,
         boxShadow: isLight
-          ? `0 0 40px ${accent}22, inset 0 0 60px rgba(0,100,180,0.03)`
-          : `0 0 60px ${accent}18, inset 0 0 120px rgba(0,20,40,0.8)`,
+          ? "0 2px 40px rgba(0,0,0,0.08)"
+          : "0 2px 40px rgba(0,0,0,0.6)",
         filter:`brightness(${brightness}%)`,
-        fontFamily:"'Courier New','Fira Code',monospace",
+        fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
       }}>
 
-      {/* Scan line effect */}
-      {!isLight&&(
-        <div style={{position:"absolute",left:0,right:0,zIndex:1,pointerEvents:"none",
-          top:`${scanLine}%`,height:"2px",
-          background:`linear-gradient(to bottom,transparent,${tk.scanColor},transparent)`,
-          transition:"top 0.028s linear"}}/>
-      )}
+      
 
-      {/* Corner brackets — cyberpunk frame */}
-      {[["0","0","top","left"],["0","0","top","right"],["0","0","bottom","left"],["0","0","bottom","right"]].map(([t2,l2,vPos,hPos],i)=>(
-        <div key={i} style={{position:"absolute",zIndex:5,pointerEvents:"none",
-          [vPos]:4,[hPos]:4,width:12,height:12,
-          borderTop:vPos==="top"?`1.5px solid ${accent}`:"none",
-          borderBottom:vPos==="bottom"?`1.5px solid ${accent}`:"none",
-          borderLeft:hPos==="left"?`1.5px solid ${accent}`:"none",
-          borderRight:hPos==="right"?`1.5px solid ${accent}`:"none",
-          opacity:0.6}}/>
-      ))}
 
       {/* ── Top Bar ── */}
       {!hidden&&(
@@ -2938,9 +2916,9 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
             <div style={{width:18,height:18,border:`1.5px solid ${accent}`,
               borderRadius:3,display:"flex",alignItems:"center",justifyContent:"center",
               fontSize:8,fontWeight:"bold",color:accent,letterSpacing:-0.5,
-              boxShadow:`0 0 8px ${accent}66`,animation:"cpGlow 3s ease infinite"}}>V</div>
+              boxShadow:`0 0 8px ${accent}66`,}}>V</div>
             <span style={{fontSize:10,fontWeight:"bold",color:accent,letterSpacing:3,
-              textShadow:`0 0 10px ${accent}88`}}>V-OPTICS</span>
+              }}>V-OPTICS</span>
             <span style={{fontSize:7,color:tk.textMuted,letterSpacing:1,
               border:`1px solid ${tk.border}`,padding:"1px 5px",borderRadius:2}}>HUD</span>
           </div>
@@ -2948,9 +2926,9 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
           {/* Clock */}
           <div style={{position:"absolute",left:"50%",transform:"translateX(-50%)",
             fontSize:13,fontWeight:"bold",color:accent,letterSpacing:4,
-            textShadow:`0 0 12px ${accent}88`,fontVariantNumeric:"tabular-nums"}}>
+            fontVariantNumeric:"tabular-nums"}}>
             {timeStr}
-            <span style={{fontSize:8,animation:"cpBlink 1s step-end infinite",marginLeft:2}}>_</span>
+            
           </div>
 
           {/* Status */}
@@ -2994,7 +2972,7 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
           scrollbarColor:`${accentDim} transparent`}}>
 
           {activeFeature==="home"&&<HomePanelNews accent={accent} accentDim={accentDim} accentFaint={accentFaint} lang={lang} theme={theme}/>}
-          {activeFeature==="voice"&&<VoicePanel t={t} accent={accent} onAction={(action:any)=>{
+          {activeFeature==="voice"&&<VoicePanel t={t} accent={accent} theme={theme} onAction={(action:any)=>{
             if(action.type==="navigate") setActiveFeature(action.feature)
             else if(action.type==="search_nearby"){setActiveFeature("nav");if(coords)searchNearbyByQuery(action.query??"",coords.lat,coords.lng)}
           }}/>}
@@ -3028,7 +3006,7 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
                 border:`1px solid ${tk.border}`}}>
                 {coords
                   ? <LeafletMap lat={coords.lat} lng={coords.lng}
-                      destLat={destination?.lat} destLng={destination?.lon ?? destination?.lng}
+                      destLat={destination?.lat} destLng={destination?.lng}
                       accent={accent} accentDim={accentDim} isLight={isLight}/>
                   : <div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",
                       flexDirection:"column",gap:6,background:tk.bgCard}}>
@@ -3085,8 +3063,7 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
             <div style={{display:"flex",flexDirection:"column",height:"100%",gap:6}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
                 flexShrink:0,paddingBottom:6,borderBottom:`1px solid ${tk.border}`}}>
-                <span style={{fontSize:11,fontWeight:"bold",color:accent,letterSpacing:2,
-                  textShadow:`0 0 8px ${accent}66`}}>
+                <span style={{fontSize:11,fontWeight:"bold",color:accent,letterSpacing:2}}>
                   {lang==="en"?"◉ ALERTS":"◉ NOTIFIKASI"}
                 </span>
                 {notifs.length>0&&<span style={{fontSize:7.5,padding:"2px 8px",borderRadius:2,
@@ -3128,9 +3105,7 @@ export function HUDSimulator({ settings, t, activeFeature: activeFeatureProp, se
         <div style={{
           position:"absolute",bottom:0,left:0,right:0,zIndex:20,
           display:"flex",alignItems:"stretch",height:38,
-          background: isLight
-            ? "rgba(222,236,252,0.98)"
-            : "rgba(0,8,20,0.9)",
+          background: isLight ? "rgba(250,250,250,0.97)" : "rgba(10,10,10,0.97)",
           borderTop:`1px solid ${tk.border}`,
         }}>
           {tabs.map((tab,i)=>{

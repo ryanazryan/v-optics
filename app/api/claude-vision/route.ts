@@ -20,8 +20,7 @@ export async function POST(req: NextRequest) {
     let messages: any[]
 
     if (msgHistory && Array.isArray(msgHistory) && msgHistory.length > 0) {
-      // Chatbot mode — multi-turn conversation history
-      // prompt is used as the system prompt
+
       const response = await client.messages.create({
         model: "claude-haiku-4-5-20251001",
         max_tokens: maxTokens,

@@ -30,6 +30,7 @@ declare global {
 interface VoicePanelProps {
   t: Translation
   accent?: string
+  theme?: any
   onAction?: (action: VoiceAction) => void
 }
 
@@ -135,10 +136,20 @@ Balas HANYA dalam JSON ini (tanpa markdown):
 }
 
 
-export function VoicePanel({ t, accent: accentProp, onAction }: VoicePanelProps) {
+export function VoicePanel({ t, accent: accentProp, theme, onAction }: VoicePanelProps) {
   const accent      = accentProp ?? "#00ffff"
-  const accentDim   = `${accent}55`
-  const accentFaint = `${accent}15`
+  const accentDim   = theme?.accentDim   ?? `${accent}55`
+  const accentFaint = theme?.accentFaint ?? `${accent}15`
+  const isLight     = theme?.isLight     ?? false
+  const textPrimary = theme?.textPrimary ?? "#d8eaf5"
+  const bgCard      = theme?.bgCard      ?? (isLight ? "rgba(0,0,0,0.04)"    : "rgba(255,255,255,0.04)")
+  const bgInset     = theme?.bgInset     ?? (isLight ? "rgba(0,0,0,0.06)"    : "rgba(0,0,0,0.3)")
+  const bgMain      = isLight ? "#ffffff" : "#0a0a0a"
+  const bgBubbleAI  = isLight ? "rgba(0,0,0,0.05)"  : "rgba(255,255,255,0.05)"
+  const bgBubbleUser= isLight ? `${accent}15`        : `${accent}22`
+  const textMain    = isLight ? "#111111" : (textPrimary ?? "#f0f0f0")
+  const textSub     = isLight ? "#666666" : "rgba(180,200,220,0.6)"
+  const borderCol   = isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.1)"
   const lang        = (t as any).language ?? "id"
 
   const [autoMode, setAutoMode]     = useState(false)
@@ -348,11 +359,11 @@ export function VoicePanel({ t, accent: accentProp, onAction }: VoicePanelProps)
   }, [])
 
   return (
-    <div style={{display:"flex",flexDirection:"column",height:"100%",minHeight:0,gap:0}}>
+    <div style={{display:"flex",flexDirection:"column",height:"100%",minHeight:0,gap:0,background:bgMain,color:textMain}}>
 
       {/* ── Header bar ── */}
       <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",
-        borderBottom:`1px solid ${accentDim}`,flexShrink:0}}>
+        borderBottom:`1px solid ${borderCol}`,flexShrink:0}}>
         {/* Avatar */}
         <div style={{width:28,height:28,borderRadius:"50%",flexShrink:0,
           background:`linear-gradient(135deg,${accent}33,${accent}11)`,
@@ -438,7 +449,7 @@ export function VoicePanel({ t, accent: accentProp, onAction }: VoicePanelProps)
             <div style={{textAlign:"center",color:accentDim,fontSize:9,
               letterSpacing:0.5,lineHeight:1.9}}>
               {lang==="en"
-                ?"Ask me anything — news, navigation,questions, commands, or just chat!"
+                ?"Ask me anything — news, navigation, questions, commands, or just chat!"
                 :"Tanya apa saja — berita, navigasi, pertanyaan, perintah, atau sekadar ngobrol!"}
             </div>
             {/* Quick suggestion chips */}
